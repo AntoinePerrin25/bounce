@@ -553,7 +553,7 @@ void applyEffects(BouncingObject* bouncingObj, GameObject* gameObj, bool isOngoi
                 
             case EFFECT_SOUND_PLAY:
                 if (!isOngoingCollision || effect->continuous) { // Only play sound once for non-continuous
-                    PlaySound(effect->params.soundEffect.sound);
+                    IsSoundPlaying(effect->params.soundEffect.sound) ? StopSound(effect->params.soundEffect.sound) : PlaySound(effect->params.soundEffect.sound);
                 }
                 break;
         }
@@ -613,4 +613,20 @@ GameObject* createGameObjectWithEffects(GameObject* baseObject, CollisionEffect*
     
     baseObject->onCollisionEffects = effectsList;
     return baseObject;
+}
+
+int Count_BouncingObjects(BouncingObject* head) {
+    int count = 0;
+    for (BouncingObject* current = head; current != NULL; current = current->next) {
+        count++;
+    }
+    return count;
+}
+
+int Count_GameObjects(GameObject* head) {
+    int count = 0;
+    for (GameObject* current = head; current != NULL; current = current->next) {
+        count++;
+    }
+    return count;
 }

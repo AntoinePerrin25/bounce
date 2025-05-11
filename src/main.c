@@ -14,6 +14,8 @@ void renderObjectList(GameObject* head);
 GameObject* createGameObjectWithEffects(GameObject* baseObject, CollisionEffect* effectsList);
 void addCollisionEffectsToGameObject(GameObject* obj, CollisionEffect* effectsList);
 void addCollisionEffectsToBouncingObject(BouncingObject* obj, CollisionEffect* effectsList);
+int Count_BouncingObjects(BouncingObject* head);
+int Count_GameObjects(GameObject* head);
 
 // Collision effects
 CollisionEffect* createColorChangeEffect(Color newColor, bool continuous);
@@ -156,7 +158,7 @@ int handleBouncingObjectCollisions(BouncingObject* bouncingObj, GameObject* obje
     return substeps;
 }
 
-#if 1
+#if 0
 #define SONG 1
 #else
 #define SONG 0
@@ -165,7 +167,7 @@ int handleBouncingObjectCollisions(BouncingObject* bouncingObj, GameObject* obje
 int main(void) {
     // Initialize window and set target FPS
     InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Multi-Object Physics Simulation");
-    SetTargetFPS(60);
+    SetTargetFPS(120);
     
     // Initialize audio device for sound effects
     #if SONG
@@ -312,7 +314,6 @@ int main(void) {
                 (float)(100 + rand() % 200) * (rand() % 2 == 0 ? 1 : -1),
                 (float)(100 + rand() % 200) * (rand() % 2 == 0 ? 1 : -1)
             };
-            
             BouncingObject* newBall = createBouncingObject(
                 mousePos, 
                 randomVelocity, 
@@ -348,6 +349,14 @@ int main(void) {
         // Display FPS
         DrawFPS(SCREEN_WIDTH - 100, 10);
         
+        // Displays the number of bouncing objects
+        int bouncingCount = Count_BouncingObjects(bouncingObjectList);
+        DrawText(TextFormat("Bouncing Objects: %d", bouncingCount), 10, 70, 20, WHITE);
+        // Display the number of static objects
+        int staticCount = Count_GameObjects(staticObjectList);
+        DrawText(TextFormat("Static Objects: %d", staticCount), 10, 100, 20, WHITE);
+
+
         EndDrawing();
     }
     
