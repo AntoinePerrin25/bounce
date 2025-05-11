@@ -6,6 +6,7 @@
 // --- Physics Helper Implementations ---
 
 // Closest point on segment AB to point P
+static Vector2 closestPointOnSegment(Vector2 p, Vector2 a, Vector2 b) __attribute__((unused));
 static Vector2 closestPointOnSegment(Vector2 p, Vector2 a, Vector2 b) {
     Vector2 ap = Vector2Subtract(p, a);
     Vector2 ab = Vector2Subtract(b, a);
@@ -615,6 +616,7 @@ GameObject* createGameObjectWithEffects(GameObject* baseObject, CollisionEffect*
     return baseObject;
 }
 
+// Count the number of bouncing objects in a list
 int Count_BouncingObjects(BouncingObject* head) {
     int count = 0;
     for (BouncingObject* current = head; current != NULL; current = current->next) {
@@ -623,6 +625,7 @@ int Count_BouncingObjects(BouncingObject* head) {
     return count;
 }
 
+// Count the number of game objects in a list
 int Count_GameObjects(GameObject* head) {
     int count = 0;
     for (GameObject* current = head; current != NULL; current = current->next) {
