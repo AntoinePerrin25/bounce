@@ -7,6 +7,7 @@
 // GameObject related
 GameObject* createRectangleObject(Vector2 position, Vector2 velocity, float width, float height, Color color, bool isStatic);
 GameObject* createDiamondObject(Vector2 position, Vector2 velocity, float diagWidth, float diagHeight, Color color, bool isStatic);
+GameObject* createArcCircleObject(Vector2 position, Vector2 velocity, float radius, float startAngle, float endAngle, float thickness, Color color, bool isStatic, float rotationSpeed, bool removeEscapedBalls);
 void addObjectToList(GameObject** head, GameObject* newObject);
 void freeObjectList(GameObject** head);
 void updateObjectList(GameObject* head, float dt);
@@ -253,7 +254,22 @@ int main(void) {
     
     // --- Create static objects with different effects ---
     
+    // Create a rotating arc circle that removes balls when they escape through it
+    GameObject* arcCircle = createArcCircleObject(
+        (Vector2){ SCREEN_WIDTH * 0.5f, SCREEN_HEIGHT * 0.5f }, // Center position
+        (Vector2){ 0, 0 }, // No movement
+        100.0f,            // Radius
+        60.0f,              // Start angle
+        120.0f,            // End angle (120 degrees arc)
+        20.0f,             // Thickness
+        (Color){ 230, 41, 55, 255 }, // Red
+        true,              // Static
+        30.0f,             // Rotation speed (degrees per second)
+        true               // Remove balls that escape through the arc
+    );
     
+    // Add the arc circle to the static objects list
+    addObjectToList(&staticObjectList, arcCircle);
     
     // Main game loop
     while (!WindowShouldClose()) {
@@ -321,6 +337,9 @@ int main(void) {
         // Handle collisions between bouncing objects
         handleBallToBallCollisions(bouncingObjectList, dt);
         
+        // Remove any balls marked for deletion (e.g. those that have escaped through arcs)
+        removeMarkedBouncingObjects(&bouncingObjectList);
+        
         // Begin drawing
         BeginDrawing();
         ClearBackground(DARKGRAY);
@@ -328,11 +347,10 @@ int main(void) {
         // Render all objects
         renderObjectList(staticObjectList);
         renderBouncingObjectList(bouncingObjectList);
-        
-        // Display instructions
+          // Display instructions
         DrawText("Left click: Add new random bouncing ball", 10, 10, 20, WHITE);
-        DrawText("ESC: Quit", 10, 40, 20, WHITE);
-        DrawText("Arrow keys: Change simulation speed", 10, 130, 20, WHITE);
+        DrawText("Right click + Left click: Add 50 balls at once", 10, 40, 20, WHITE);
+        DrawText("ESC: Quit", 10, 70, 20, WHITE);
         
         // Display FPS
         DrawFPS(SCREEN_WIDTH - 100, 10);

@@ -374,6 +374,204 @@ GameObject* createDiamondObject(Vector2 position, Vector2 velocity, float diagWi
     return obj;
 }
 
+// --- Arc Circle Object ---
+static void renderArcCircleObj(GameObject* self) {
+    ShapeDataArcCircle* data = (ShapeDataArcCircle*)self->shapeData;
+    // Draw the arc
+    DrawRing(
+        self->position,
+        data->radius - data->thickness/2,
+        data->radius + data->thickness/2,
+        data->startAngle + data->rotation,
+        data->endAngle + data->rotation,
+        36, // Number of segments (for smoother arcs)
+        data->color
+    );
+}
+
+static void updateArcCircleObj(GameObject* self, float dt) {
+    if (!self || self->isStatic) return;
+    
+    // Update position based on velocity
+    self->position = Vector2Add(self->position, Vector2Scale(self->velocity, dt));
+    
+    printf("ArcCircle update called\n");
+    // Update rotation
+    ShapeDataArcCircle* data = (ShapeDataArcCircle*)self->shapeData;
+    data->rotation += data->rotationSpeed * dt;
+    
+    // Normalize rotation to avoid large values over time
+    if (data->rotation > 36000.0f) {
+        data->rotation -= 36000.0f;
+    } else if (data->rotation < -36000.0f) {
+        data->rotation += 36000.0f;
+    }
+    
+    // Basic screen wrap for objects (optional)
+    if (self->position.x < -50) self->position.x = SCREEN_WIDTH + 40;
+    if (self->position.x > SCREEN_WIDTH + 50) self->position.x = -40;
+    if (self->position.y < -50) self->position.y = SCREEN_HEIGHT + 40;
+    if (self->position.y > SCREEN_HEIGHT + 50) self->position.y = -40;
+}
+
+static bool isPointInsideArcSector(Vector2 center, Vector2 point, float radius, float startAngleDeg, float endAngleDeg, float rotation) {
+    // Convert to local coordinates
+    Vector2 localPoint = Vector2Subtract(point, center);
+    
+    // Check radius
+    float distanceSquared = Vector2LengthSqr(localPoint);
+    if (distanceSquared > radius * radius) {
+        return false;
+    }
+    
+    // Calculate angle of the point in degrees
+    float angleRad = atan2f(localPoint.y, localPoint.x);
+    float angleDeg = angleRad * RAD2DEG;
+    
+    // Adjust for the arc's rotation
+    angleDeg -= rotation;
+    
+    // Normalize to [0, 360]
+    while (angleDeg < 0) angleDeg += 360.0f;
+    while (angleDeg >= 360.0f) angleDeg -= 360.0f;
+    
+    // Normalize start and end angles
+    float normalizedStartAngle = fmodf(startAngleDeg, 360.0f);
+    while (normalizedStartAngle < 0) normalizedStartAngle += 360.0f;
+    
+    float normalizedEndAngle = fmodf(endAngleDeg, 360.0f);
+    while (normalizedEndAngle < 0) normalizedEndAngle += 360.0f;
+    
+    // Check if point angle is within arc angles
+    if (normalizedStartAngle < normalizedEndAngle) {
+        return angleDeg >= normalizedStartAngle && angleDeg <= normalizedEndAngle;
+    } else {
+        // Arc wraps around 0 degrees
+        return angleDeg >= normalizedStartAngle || angleDeg <= normalizedEndAngle;
+    }
+}
+
+static bool checkCollisionArcCircleObj(GameObject* self, BouncingObject* bouncingObj, float dt_step, float* timeOfImpact, Vector2* collisionNormal) {
+    ShapeDataArcCircle* data = (ShapeDataArcCircle*)self->shapeData;
+    
+    // Calculate the relative velocity of the bouncing object to the arc circle
+    Vector2 relBallVel = Vector2Subtract(bouncingObj->velocity, self->velocity);
+    
+    // Get current arc circle parameters
+    Vector2 arcCenter = self->position;
+    float innerRadius = data->radius - data->thickness/2;
+    float outerRadius = data->radius + data->thickness/2;
+    float startAngle = data->startAngle + data->rotation;
+    float endAngle = data->endAngle + data->rotation;
+    
+    // Simple checks for quick rejection
+    float maxDistance = outerRadius + bouncingObj->radius;
+    float minDistance = innerRadius - bouncingObj->radius;
+    
+    Vector2 ballPos = bouncingObj->position;
+    Vector2 ballToCenter = Vector2Subtract(arcCenter, ballPos);
+    float currentDistSq = Vector2LengthSqr(ballToCenter);
+    
+    // If ball is too far from the arc, or too close to the center, no collision possible
+    if (currentDistSq > maxDistance * maxDistance || 
+        (currentDistSq < minDistance * minDistance && minDistance > 0)) {
+        return false;
+    }
+    
+    // Check if the ball is already inside the arc sector
+    bool ballInsideArc = isPointInsideArcSector(
+        arcCenter, 
+        ballPos, 
+        outerRadius + bouncingObj->radius, 
+        startAngle, 
+        endAngle,
+        data->rotation
+    );
+    
+    // Estimate the ball's position after dt_step
+    Vector2 ballFuturePos = Vector2Add(ballPos, Vector2Scale(relBallVel, dt_step));
+    
+    // Check if the ball will be inside the arc sector at the end of the time step
+    bool ballWillBeInsideArc = isPointInsideArcSector(
+        arcCenter, 
+        ballFuturePos, 
+        outerRadius + bouncingObj->radius, 
+        startAngle, 
+        endAngle,
+        data->rotation
+    );
+    
+    // If the ball has crossed from outside to inside the arc, it has passed through the opening
+    if (!ballInsideArc && ballWillBeInsideArc && data->removeEscapedBalls) {
+        // Mark the ball for removal (it escaped through the arc)
+        bouncingObj->markedForDeletion = true;
+        return false; // No collision, ball just escapes
+    }
+    
+    // If we're here, we need to check for collisions with the inner/outer edges
+    // of the arc, which is more complex. For simple prototype, we'll use segment approximation.
+    
+    // Create segments approximating the inner and outer arcs
+    // For a prototype, we'll use a simplified approach and just check distance
+    float distToCenter = sqrtf(currentDistSq);
+    
+    // Check if ball is colliding with the inner or outer edge
+    bool collidingWithInner = distToCenter <= innerRadius + bouncingObj->radius && distToCenter >= innerRadius - bouncingObj->radius;
+    bool collidingWithOuter = distToCenter <= outerRadius + bouncingObj->radius && distToCenter >= outerRadius - bouncingObj->radius;
+    
+    // If colliding with either edge, check if it's within the angular range
+    if ((collidingWithInner || collidingWithOuter) && ballInsideArc) {
+        *timeOfImpact = 0.0f; // Collision is happening now
+        
+        // Calculate normal based on whether it's the inner or outer edge
+        if (collidingWithInner) {
+            // Normal points away from center for inner edge
+            *collisionNormal = Vector2Normalize(ballToCenter);
+        } else {
+            // Normal points toward center for outer edge
+            *collisionNormal = Vector2Normalize(Vector2Scale(ballToCenter, -1.0f));
+        }
+        
+        return true;
+    }
+    
+    return false;
+}
+
+GameObject* createArcCircleObject(Vector2 position, Vector2 velocity, float radius, float startAngle, float endAngle, float thickness, Color color, bool isStatic, float rotationSpeed, bool removeEscapedBalls) {
+    GameObject* obj = (GameObject*)malloc(sizeof(GameObject));
+    if (!obj) return NULL;
+    
+    ShapeDataArcCircle* data = (ShapeDataArcCircle*)malloc(sizeof(ShapeDataArcCircle));
+    if (!data) { 
+        free(obj); 
+        return NULL; 
+    }
+    
+    data->radius = radius;
+    data->startAngle = startAngle;
+    data->endAngle = endAngle;
+    data->thickness = thickness;
+    data->color = color;
+    data->rotation = 0.0f;
+    data->rotationSpeed = rotationSpeed;
+    data->removeEscapedBalls = removeEscapedBalls;
+    
+    obj->type = SHAPE_CIRCLE_ARC;
+    obj->position = position;
+    obj->velocity = isStatic ? (Vector2){0,0} : velocity;
+    obj->shapeData = data;
+    obj->isStatic = isStatic;
+    obj->render = renderArcCircleObj;
+    obj->checkCollision = checkCollisionArcCircleObj;
+    obj->update = updateArcCircleObj;
+    obj->destroy = destroyGenericShapeData;
+    obj->next = NULL;
+    obj->onCollisionEffects = NULL;
+    
+    return obj;
+}
+
 // --- BouncingObject Management Functions ---
 
 // Create a new bouncing object
@@ -388,6 +586,7 @@ BouncingObject* createBouncingObject(Vector2 position, Vector2 velocity, float r
     obj->mass = (mass > 0.0f) ? mass : 1.0f; // Ensure positive mass
     obj->restitution = Clamp(restitution, 0.0f, 1.0f); // Ensure valid restitution
     obj->interactWithOtherBouncingObjects = interactWithOtherBouncingObjects;
+    obj->markedForDeletion = false; // Initially not marked for deletion
     obj->onCollisionEffects = NULL;
     obj->next = NULL;
     
@@ -415,6 +614,34 @@ void freeBouncingObjectList(BouncingObject** head) {
     }
     
     *head = NULL;
+}
+
+// Remove all bouncing objects marked for deletion
+void removeMarkedBouncingObjects(BouncingObject** head) {
+    BouncingObject* current = *head;
+    BouncingObject* prev = NULL;
+    BouncingObject* next = NULL;
+    
+    while (current != NULL) {
+        next = current->next;
+        
+        if (current->markedForDeletion) {
+            // If it's the head of the list
+            if (prev == NULL) {
+                *head = next;
+            } else {
+                prev->next = next;
+            }
+            
+            // Free resources associated with this object
+            freeEffectList(&current->onCollisionEffects);
+            free(current);
+        } else {
+            prev = current;
+        }
+        
+        current = next;
+    }
 }
 
 // Update all bouncing objects in a list
@@ -505,6 +732,35 @@ CollisionEffect* createSoundPlayEffect(Sound sound, bool continuous) {
     return effect;
 }
 
+// Create a ball disappear effect
+CollisionEffect* createBallDisappearEffect(int particleCount, Color particleColor, bool continuous) {
+    CollisionEffect* effect = (CollisionEffect*)malloc(sizeof(CollisionEffect));
+    if (!effect) return NULL;
+    
+    effect->type = EFFECT_BALL_DISAPPEAR;
+    effect->continuous = continuous;
+    effect->params.disappearEffect.particleCount = particleCount;
+    effect->params.disappearEffect.particleColor = particleColor;
+    effect->next = NULL;
+    
+    return effect;
+}
+
+// Create a ball spawn effect
+CollisionEffect* createBallSpawnEffect(Vector2 position, float radius, Color color, bool continuous) {
+    CollisionEffect* effect = (CollisionEffect*)malloc(sizeof(CollisionEffect));
+    if (!effect) return NULL;
+    
+    effect->type = EFFECT_BALL_SPAWN;
+    effect->continuous = continuous;
+    effect->params.spawnEffect.position = position;
+    effect->params.spawnEffect.radius = radius;
+    effect->params.spawnEffect.color = color;
+    effect->next = NULL;
+    
+    return effect;
+}
+
 // Add an effect to a list of effects
 void addEffectToList(CollisionEffect** head, CollisionEffect* newEffect) {
     if (!newEffect) return;
@@ -557,6 +813,17 @@ void applyEffects(BouncingObject* bouncingObj, GameObject* gameObj, bool isOngoi
                 if (!isOngoingCollision || effect->continuous) { // Only play sound once for non-continuous
                     IsSoundPlaying(effect->params.soundEffect.sound) ? StopSound(effect->params.soundEffect.sound) : PlaySound(effect->params.soundEffect.sound);
                 }
+                break;
+                
+            case EFFECT_BALL_DISAPPEAR:
+                // Mark the ball for deletion - actual deletion happens in removeMarkedBouncingObjects
+                bouncingObj->markedForDeletion = true;
+                // In a more advanced version, we could spawn particles here
+                break;
+                
+            case EFFECT_BALL_SPAWN:
+                // This would typically be handled by the game logic, not here
+                // The main game loop would check for this effect and spawn new balls
                 break;
         }
     }

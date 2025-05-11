@@ -21,7 +21,7 @@ typedef struct CollisionEffect CollisionEffect;
 typedef enum {
     SHAPE_RECTANGLE,
     SHAPE_DIAMOND,
-    // SHAPE_CIRCLE_ARC, // Placeholder for "cercle non fermé"
+    SHAPE_CIRCLE_ARC, // Arc/Open circle
 } ShapeType;
 
 // --- Shape-specific data structures ---
@@ -37,13 +37,26 @@ typedef struct {
     Color color;
 } ShapeDataDiamond;
 
+typedef struct {
+    float radius;         // Radius of the arc circle
+    float startAngle;     // Start angle in degrees
+    float endAngle;       // End angle in degrees
+    float thickness;      // Thickness of the arc
+    Color color;          // Color of the arc
+    float rotation;       // Current rotation of the arc (for dynamic rotation)
+    float rotationSpeed;  // Speed of rotation (degrees per second)
+    bool removeEscapedBalls; // Whether balls that pass through the arc should be removed
+} ShapeDataArcCircle;
+
 // --- Type of collision effect ---
 typedef enum {
     EFFECT_COLOR_CHANGE,      // Change color of the bouncing object
     EFFECT_VELOCITY_BOOST,    // Increase speed of the bouncing object
     EFFECT_VELOCITY_DAMPEN,   // Decrease speed of the bouncing object
     EFFECT_SIZE_CHANGE,       // Change size of the bouncing object
-    EFFECT_SOUND_PLAY         // Play a sound effect
+    EFFECT_SOUND_PLAY,        // Play a sound effect
+    EFFECT_BALL_DISAPPEAR,    // Make the ball disappear with effects
+    EFFECT_BALL_SPAWN         // Spawn a new ball with effects
 } EffectType;
 
 // --- Collision effect structure ---
@@ -63,6 +76,15 @@ struct CollisionEffect {
         struct {
             Sound sound;      // Sound to play for SOUND_PLAY
         } soundEffect;
+        struct {
+            int particleCount; // Number of particles to create when ball disappears
+            Color particleColor; // Color of the particles
+        } disappearEffect;
+        struct {
+            Vector2 position; // Position to spawn the new ball (if {0,0}, uses collision point)
+            float radius;     // Radius of the new ball (0 for random)
+            Color color;      // Color of the new ball (BLACK for random)
+        } spawnEffect;
     } params;
     
     CollisionEffect* next;   // For linked list
@@ -85,6 +107,7 @@ struct BouncingObject {
     float mass;            // Mass affects collision response
     float restitution;     // Bounciness factor (0.0 to 1.0)
     bool interactWithOtherBouncingObjects;  // If true, will bounce against other bouncing objects
+    bool markedForDeletion; // If true, this ball will be removed in the next frame
     
     // Linked list of effects to apply when this object collides
     CollisionEffect* onCollisionEffects;
@@ -131,6 +154,7 @@ void addBouncingObjectToList(BouncingObject** head, BouncingObject* newObject);
 void freeBouncingObjectList(BouncingObject** head);
 void updateBouncingObjectList(BouncingObject* head, float dt);
 void renderBouncingObjectList(BouncingObject* head);
+void removeMarkedBouncingObjects(BouncingObject** head); // New function to clean up marked objects
 
 // --- Function Prototypes for Collision Effect Management ---
 CollisionEffect* createColorChangeEffect(Color newColor, bool continuous);
@@ -138,6 +162,8 @@ CollisionEffect* createVelocityBoostEffect(float factor, bool continuous);
 CollisionEffect* createVelocityDampenEffect(float factor, bool continuous);
 CollisionEffect* createSizeChangeEffect(float factor, bool continuous);
 CollisionEffect* createSoundPlayEffect(Sound sound, bool continuous);
+CollisionEffect* createBallDisappearEffect(int particleCount, Color particleColor, bool continuous);
+CollisionEffect* createBallSpawnEffect(Vector2 position, float radius, Color color, bool continuous);
 void addEffectToList(CollisionEffect** head, CollisionEffect* newEffect);
 void freeEffectList(CollisionEffect** head);
 void applyEffects(BouncingObject* bouncingObj, GameObject* gameObj, bool isOngoingCollision);
