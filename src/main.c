@@ -1,4 +1,4 @@
-#include "raylib/raylib.h"
+#include "../include/raylib.h"
 #include "../include/common.h" // Includes raymath.h indirectly
 #include <stdio.h>  // For debug prints
 #include <stdlib.h> // For malloc, free

@@ -1,5 +1,5 @@
 #define NOB_IMPLEMENTATION
-#include <nob.h> // Make sure nob.h is in your project directory
+#include "nob.h" // Make sure nob.h is in your project directory
 
 #include <stdio.h> // For snprintf
 #include <errno.h> // For strerror with nob_copy_file
