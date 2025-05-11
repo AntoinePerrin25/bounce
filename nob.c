@@ -12,11 +12,10 @@ int main(int argc, char **argv) {
     nob_cmd_append(&cmd, "gcc", "-Wall", "-Wextra");
     nob_cmd_append(&cmd, "-Iinclude", "-Llib");
     nob_cmd_append(&cmd, "-o", "bouncing_ball_sim.exe");
+    nob_cmd_append(&cmd, "-O2");
     nob_cmd_append(&cmd, "src/main.c", "src/objects.c");
-    nob_cmd_append(&cmd, "-lraylib", "-lopengl32", "-lgdi32", "-lwinmm", "-mwindows");
-
-
-
+    nob_cmd_append(&cmd, "-lraylib", "-lopengl32", "-lgdi32", "-lwinmm");
+    nob_cmd_append(&cmd, "-mwindows");
     if (!nob_cmd_run_sync(cmd)) return 1;
    
     return 0;

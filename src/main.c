@@ -284,21 +284,28 @@ int main(void) {
             // Don't create a ball if clicking on speed controls
             if (!CheckCollisionPointRec(mousePoint, decreaseButton) && 
                 !CheckCollisionPointRec(mousePoint, increaseButton) &&
-                !CheckCollisionPointRec(mousePoint, speedDisplay)) {
+                !CheckCollisionPointRec(mousePoint, speedDisplay)){
+                int repetition = 1;
+                    if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)){
+                        repetition = 50;
+                }
                 Vector2 mousePos = GetMousePosition();
-                Vector2 randomVelocity = {
-                    (float)(100 + rand() % 200) * (rand() % 2 == 0 ? 1 : -1),
-                    (float)(100 + rand() % 200) * (rand() % 2 == 0 ? 1 : -1)
-                };                BouncingObject* newBall = createBouncingObject(
-                    mousePos, 
-                    randomVelocity, 
-                    10 + (rand() % 20), // Random size
-                    (Color){ rand() % 200 + 55, rand() % 200 + 55, rand() % 200 + 55, 255 }, // Random color
-                    0.5f + ((float)rand() / RAND_MAX) * 2.5f, // Random mass between 0.5 and 3.0
-                    0.6f + ((float)rand() / RAND_MAX) * 0.35f, // Random restitution between 0.6 and 0.95
-                    true // By default, allow interaction with other bouncing objects
-                );
-                addBouncingObjectToList(&bouncingObjectList, newBall);
+                do {
+                    Vector2 randomVelocity = {
+                        (float)(100 + rand() % 200) * (rand() % 2 == 0 ? 1 : -1),
+                        (float)(100 + rand() % 200) * (rand() % 2 == 0 ? 1 : -1)
+                    };                BouncingObject* newBall = createBouncingObject(
+                        mousePos, 
+                        randomVelocity, 
+                        10 + (rand() % 20), // Random size
+                        (Color){ rand() % 200 + 55, rand() % 200 + 55, rand() % 200 + 55, 255 }, // Random color
+                        0.5f + ((float)rand() / RAND_MAX) * 2.5f, // Random mass between 0.5 and 3.0
+                        0.6f + ((float)rand() / RAND_MAX) * 0.35f, // Random restitution between 0.6 and 0.95
+                        true // By default, allow interaction with other bouncing objects
+                    );
+                    addBouncingObjectToList(&bouncingObjectList, newBall);
+                    repetition--;
+                } while (repetition > 0);
             }
         }
         
