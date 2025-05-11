@@ -6,8 +6,8 @@
 #include <stdbool.h>
 #include <float.h>   // For FLT_MAX
 
-#define SCREEN_WIDTH 1920
-#define SCREEN_HEIGHT 1080
+#define SCREEN_WIDTH 1080
+#define SCREEN_HEIGHT 720
 
 #define EPSILON2 0.0001f
 
@@ -84,6 +84,7 @@ struct BouncingObject {
     Color color;
     float mass;            // Mass affects collision response
     float restitution;     // Bounciness factor (0.0 to 1.0)
+    bool interactWithOtherBouncingObjects;  // If true, will bounce against other bouncing objects
     
     // Linked list of effects to apply when this object collides
     CollisionEffect* onCollisionEffects;
@@ -125,7 +126,7 @@ bool sweptBallToStaticSegmentCollision(Vector2 segP1, Vector2 segP2,
                                        float dt_max, float* toi, Vector2* normal);
 
 // --- Function Prototypes for BouncingObject Management ---
-BouncingObject* createBouncingObject(Vector2 position, Vector2 velocity, float radius, Color color, float mass, float restitution);
+BouncingObject* createBouncingObject(Vector2 position, Vector2 velocity, float radius, Color color, float mass, float restitution, bool interactWithOtherBouncingObjects);
 void addBouncingObjectToList(BouncingObject** head, BouncingObject* newObject);
 void freeBouncingObjectList(BouncingObject** head);
 void updateBouncingObjectList(BouncingObject* head, float dt);

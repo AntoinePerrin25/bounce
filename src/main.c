@@ -26,6 +26,9 @@ CollisionEffect* createSoundPlayEffect(Sound sound, bool continuous);
 void addEffectToList(CollisionEffect** head, CollisionEffect* newEffect);
 void applyEffects(BouncingObject* bouncingObj, GameObject* gameObj, bool isOngoingCollision);
 
+// Handle collisions between bouncing objects
+void handleBallToBallCollisions(BouncingObject* bouncingObjectList, float dt);
+
 // Screen boundary collision for a bouncing object
 static void applyScreenBoundaryCollisions(BouncingObject* obj) {
     bool reflected = false;
@@ -52,6 +55,59 @@ static void applyScreenBoundaryCollisions(BouncingObject* obj) {
     
     if (reflected) { // Apply slight damping on wall hit
         obj->velocity = Vector2Scale(obj->velocity, 0.99f);
+    }
+}
+
+// Handle collisions between bouncing objects
+void handleBallToBallCollisions(BouncingObject* bouncingObjectList, float dt) {
+    // For each pair of balls, check for collisions
+    for (BouncingObject* ball1 = bouncingObjectList; ball1 != NULL; ball1 = ball1->next) {
+        // Skip if this ball shouldn't interact with other bouncing objects
+        if (!ball1->interactWithOtherBouncingObjects) continue;
+        
+        for (BouncingObject* ball2 = ball1->next; ball2 != NULL; ball2 = ball2->next) {
+            // Skip if the second ball shouldn't interact with other bouncing objects
+            if (!ball2->interactWithOtherBouncingObjects) continue;
+            
+            // Calculate distance between centers
+            float distance = Vector2Distance(ball1->position, ball2->position);
+            float minDistance = ball1->radius + ball2->radius;
+            
+            // Check for collision (overlap)
+            if (distance < minDistance) {
+                // Calculate normal vector from ball1 to ball2
+                Vector2 normal = Vector2Normalize(Vector2Subtract(ball2->position, ball1->position));
+                
+                // Calculate overlap amount
+                float overlap = minDistance - distance;
+                
+                // Separate the balls to avoid persistent collision
+                // Distribute movement based on masses (heavier ball moves less)
+                float totalMass = ball1->mass + ball2->mass;
+                float ball1Ratio = ball2->mass / totalMass;
+                float ball2Ratio = ball1->mass / totalMass;
+                
+                // Push balls apart
+                ball1->position = Vector2Subtract(ball1->position, Vector2Scale(normal, overlap * ball1Ratio));
+                ball2->position = Vector2Add(ball2->position, Vector2Scale(normal, overlap * ball2Ratio));
+                
+                // Collision response (elastic collision formula)
+                // Calculate relative velocity
+                Vector2 relativeVelocity = Vector2Subtract(ball1->velocity, ball2->velocity);
+                
+                // Calculate impulse strength
+                float impulseMagnitude = (-(1 + ball1->restitution * ball2->restitution) * 
+                                         Vector2DotProduct(relativeVelocity, normal)) / 
+                                         (1/ball1->mass + 1/ball2->mass);
+                
+                // Apply impulse to velocities
+                ball1->velocity = Vector2Add(ball1->velocity, 
+                                           Vector2Scale(normal, impulseMagnitude / ball1->mass));
+                                           
+                ball2->velocity = Vector2Subtract(ball2->velocity, 
+                                                Vector2Scale(normal, impulseMagnitude / ball2->mass));
+            }
+        }
     }
 }
 
@@ -224,7 +280,7 @@ int main(void) {
         }
         
         // Handle keyboard input - add new bouncing objects with mouse click
-        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || IsKeyDown(KEY_SPACE)) {
             // Don't create a ball if clicking on speed controls
             if (!CheckCollisionPointRec(mousePoint, decreaseButton) && 
                 !CheckCollisionPointRec(mousePoint, increaseButton) &&
@@ -233,14 +289,14 @@ int main(void) {
                 Vector2 randomVelocity = {
                     (float)(100 + rand() % 200) * (rand() % 2 == 0 ? 1 : -1),
                     (float)(100 + rand() % 200) * (rand() % 2 == 0 ? 1 : -1)
-                };
-                BouncingObject* newBall = createBouncingObject(
+                };                BouncingObject* newBall = createBouncingObject(
                     mousePos, 
                     randomVelocity, 
                     10 + (rand() % 20), // Random size
                     (Color){ rand() % 200 + 55, rand() % 200 + 55, rand() % 200 + 55, 255 }, // Random color
                     0.5f + ((float)rand() / RAND_MAX) * 2.5f, // Random mass between 0.5 and 3.0
-                    0.6f + ((float)rand() / RAND_MAX) * 0.35f // Random restitution between 0.6 and 0.95
+                    0.6f + ((float)rand() / RAND_MAX) * 0.35f, // Random restitution between 0.6 and 0.95
+                    true // By default, allow interaction with other bouncing objects
                 );
                 addBouncingObjectToList(&bouncingObjectList, newBall);
             }
@@ -255,6 +311,9 @@ int main(void) {
             applyScreenBoundaryCollisions(ball);
         }
         
+        // Handle collisions between bouncing objects
+        handleBallToBallCollisions(bouncingObjectList, dt);
+        
         // Begin drawing
         BeginDrawing();
         ClearBackground(DARKGRAY);
@@ -266,6 +325,7 @@ int main(void) {
         // Display instructions
         DrawText("Left click: Add new random bouncing ball", 10, 10, 20, WHITE);
         DrawText("ESC: Quit", 10, 40, 20, WHITE);
+        DrawText("Arrow keys: Change simulation speed", 10, 130, 20, WHITE);
         
         // Display FPS
         DrawFPS(SCREEN_WIDTH - 100, 10);

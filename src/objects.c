@@ -377,7 +377,7 @@ GameObject* createDiamondObject(Vector2 position, Vector2 velocity, float diagWi
 // --- BouncingObject Management Functions ---
 
 // Create a new bouncing object
-BouncingObject* createBouncingObject(Vector2 position, Vector2 velocity, float radius, Color color, float mass, float restitution) {
+BouncingObject* createBouncingObject(Vector2 position, Vector2 velocity, float radius, Color color, float mass, float restitution, bool interactWithOtherBouncingObjects) {
     BouncingObject* obj = (BouncingObject*)malloc(sizeof(BouncingObject));
     if (!obj) return NULL;
     
@@ -387,6 +387,7 @@ BouncingObject* createBouncingObject(Vector2 position, Vector2 velocity, float r
     obj->color = color;
     obj->mass = (mass > 0.0f) ? mass : 1.0f; // Ensure positive mass
     obj->restitution = Clamp(restitution, 0.0f, 1.0f); // Ensure valid restitution
+    obj->interactWithOtherBouncingObjects = interactWithOtherBouncingObjects;
     obj->onCollisionEffects = NULL;
     obj->next = NULL;
     
