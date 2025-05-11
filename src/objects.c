@@ -251,10 +251,9 @@ static void renderRectangleObj(GameObject* self) {
     );
 }
 
-static bool checkCollisionRectangleObj(GameObject* self, Ball* ball, float dt_step, float* timeOfImpact, Vector2* collisionNormal) {
-    ShapeDataRectangle* data = (ShapeDataRectangle*)self->shapeData;
-    // Relative velocity of ball with respect to the (potentially moving) object
-    Vector2 relBallVel = Vector2Subtract(ball->velocity, self->velocity);
+static bool checkCollisionRectangleObj(GameObject* self, BouncingObject* bouncingObj, float dt_step, float* timeOfImpact, Vector2* collisionNormal) {    ShapeDataRectangle* data = (ShapeDataRectangle*)self->shapeData;
+    // Relative velocity of bouncing object with respect to the (potentially moving) object
+    Vector2 relBallVel = Vector2Subtract(bouncingObj->velocity, self->velocity);
 
     // Rectangle vertices (object's position is its center)
     float hw = data->width / 2.0f;
@@ -271,14 +270,12 @@ static bool checkCollisionRectangleObj(GameObject* self, Ball* ball, float dt_st
     };
 
     float min_toi = dt_step + EPSILON2; // Initialize with a value larger than dt_step
-    bool collided_overall = false;
-
-    for (int i = 0; i < 4; ++i) {
+    bool collided_overall = false;    for (int i = 0; i < 4; ++i) {
         float current_segment_toi;
         Vector2 current_segment_normal;
-        // Pass ball's current position, its RELATIVE velocity, and segment (considered static in this call)
+        // Pass bouncing object's current position, its RELATIVE velocity, and segment (considered static in this call)
         if (sweptBallToStaticSegmentCollision(segments[i][0], segments[i][1],
-                                              ball->position, relBallVel, ball->radius,
+                                              bouncingObj->position, relBallVel, bouncingObj->radius,
                                               dt_step, &current_segment_toi, &current_segment_normal)) {
             if (current_segment_toi >= -EPSILON2 && current_segment_toi < min_toi) {
                 min_toi = current_segment_toi;
@@ -326,9 +323,8 @@ static void renderDiamondObj(GameObject* self) {
     // Or fill with triangles: DrawTriangle(top, left, right, data->color); DrawTriangle(bottom, left, right, data->color);
 }
 
-static bool checkCollisionDiamondObj(GameObject* self, Ball* ball, float dt_step, float* timeOfImpact, Vector2* collisionNormal) {
-    ShapeDataDiamond* data = (ShapeDataDiamond*)self->shapeData;
-    Vector2 relBallVel = Vector2Subtract(ball->velocity, self->velocity);
+static bool checkCollisionDiamondObj(GameObject* self, BouncingObject* bouncingObj, float dt_step, float* timeOfImpact, Vector2* collisionNormal) {    ShapeDataDiamond* data = (ShapeDataDiamond*)self->shapeData;
+    Vector2 relBallVel = Vector2Subtract(bouncingObj->velocity, self->velocity);
     Vector2 p = self->position;
     float hw = data->halfWidth; float hh = data->halfHeight;
 
@@ -341,9 +337,8 @@ static bool checkCollisionDiamondObj(GameObject* self, Ball* ball, float dt_step
 
     for (int i = 0; i < 4; ++i) {
         float current_segment_toi;
-        Vector2 current_segment_normal;
-        if (sweptBallToStaticSegmentCollision(segments[i][0], segments[i][1],
-                                              ball->position, relBallVel, ball->radius,
+        Vector2 current_segment_normal;        if (sweptBallToStaticSegmentCollision(segments[i][0], segments[i][1],
+                                              bouncingObj->position, relBallVel, bouncingObj->radius,
                                               dt_step, &current_segment_toi, &current_segment_normal)) {
             if (current_segment_toi >= -EPSILON2 && current_segment_toi < min_toi) {
                 min_toi = current_segment_toi;
@@ -376,4 +371,246 @@ GameObject* createDiamondObject(Vector2 position, Vector2 velocity, float diagWi
     obj->destroy = destroyGenericShapeData;
     obj->next = NULL;
     return obj;
+}
+
+// --- BouncingObject Management Functions ---
+
+// Create a new bouncing object
+BouncingObject* createBouncingObject(Vector2 position, Vector2 velocity, float radius, Color color, float mass, float restitution) {
+    BouncingObject* obj = (BouncingObject*)malloc(sizeof(BouncingObject));
+    if (!obj) return NULL;
+    
+    obj->position = position;
+    obj->velocity = velocity;
+    obj->radius = radius;
+    obj->color = color;
+    obj->mass = (mass > 0.0f) ? mass : 1.0f; // Ensure positive mass
+    obj->restitution = Clamp(restitution, 0.0f, 1.0f); // Ensure valid restitution
+    obj->onCollisionEffects = NULL;
+    obj->next = NULL;
+    
+    return obj;
+}
+
+// Add a bouncing object to a linked list
+void addBouncingObjectToList(BouncingObject** head, BouncingObject* newObject) {
+    if (!newObject) return;
+    newObject->next = *head;
+    *head = newObject;
+}
+
+// Free a linked list of bouncing objects
+void freeBouncingObjectList(BouncingObject** head) {
+    BouncingObject* current = *head;
+    BouncingObject* next;
+    
+    while (current != NULL) {
+        next = current->next;
+        // Free any effects attached to this object
+        freeEffectList(&current->onCollisionEffects);
+        free(current);
+        current = next;
+    }
+    
+    *head = NULL;
+}
+
+// Update all bouncing objects in a list
+void updateBouncingObjectList(BouncingObject* head, float dt) {
+    for (BouncingObject* current = head; current != NULL; current = current->next) {
+        // Update position based on velocity
+        current->position = Vector2Add(current->position, Vector2Scale(current->velocity, dt));
+        
+        // Basic screen wrap for bouncing objects (optional)
+        if (current->position.x < -50) current->position.x = SCREEN_WIDTH + 40;
+        if (current->position.x > SCREEN_WIDTH + 50) current->position.x = -40;
+        if (current->position.y < -50) current->position.y = SCREEN_HEIGHT + 40;
+        if (current->position.y > SCREEN_HEIGHT + 50) current->position.y = -40;
+    }
+}
+
+// Render all bouncing objects in a list
+void renderBouncingObjectList(BouncingObject* head) {
+    for (BouncingObject* current = head; current != NULL; current = current->next) {
+        DrawCircleV(current->position, current->radius, current->color);
+    }
+}
+
+// --- Collision Effect Functions ---
+
+// Create a color change effect
+CollisionEffect* createColorChangeEffect(Color newColor, bool continuous) {
+    CollisionEffect* effect = (CollisionEffect*)malloc(sizeof(CollisionEffect));
+    if (!effect) return NULL;
+    
+    effect->type = EFFECT_COLOR_CHANGE;
+    effect->continuous = continuous;
+    effect->params.colorEffect.color = newColor;
+    effect->next = NULL;
+    
+    return effect;
+}
+
+// Create a velocity boost effect
+CollisionEffect* createVelocityBoostEffect(float factor, bool continuous) {
+    CollisionEffect* effect = (CollisionEffect*)malloc(sizeof(CollisionEffect));
+    if (!effect) return NULL;
+    
+    effect->type = EFFECT_VELOCITY_BOOST;
+    effect->continuous = continuous;
+    effect->params.velocityEffect.factor = (factor > 1.0f) ? factor : 1.1f; // Default 10% boost
+    effect->next = NULL;
+    
+    return effect;
+}
+
+// Create a velocity dampen effect
+CollisionEffect* createVelocityDampenEffect(float factor, bool continuous) {
+    CollisionEffect* effect = (CollisionEffect*)malloc(sizeof(CollisionEffect));
+    if (!effect) return NULL;
+    
+    effect->type = EFFECT_VELOCITY_DAMPEN;
+    effect->continuous = continuous;
+    effect->params.velocityEffect.factor = Clamp(factor, 0.01f, 0.99f); // Default dampen
+    effect->next = NULL;
+    
+    return effect;
+}
+
+// Create a size change effect
+CollisionEffect* createSizeChangeEffect(float factor, bool continuous) {
+    CollisionEffect* effect = (CollisionEffect*)malloc(sizeof(CollisionEffect));
+    if (!effect) return NULL;
+    
+    effect->type = EFFECT_SIZE_CHANGE;
+    effect->continuous = continuous;
+    effect->params.sizeEffect.factor = factor;
+    effect->next = NULL;
+    
+    return effect;
+}
+
+// Create a sound play effect
+CollisionEffect* createSoundPlayEffect(Sound sound, bool continuous) {
+    CollisionEffect* effect = (CollisionEffect*)malloc(sizeof(CollisionEffect));
+    if (!effect) return NULL;
+    
+    effect->type = EFFECT_SOUND_PLAY;
+    effect->continuous = continuous;
+    effect->params.soundEffect.sound = sound;
+    effect->next = NULL;
+    
+    return effect;
+}
+
+// Add an effect to a list of effects
+void addEffectToList(CollisionEffect** head, CollisionEffect* newEffect) {
+    if (!newEffect) return;
+    newEffect->next = *head;
+    *head = newEffect;
+}
+
+// Free a linked list of effects
+void freeEffectList(CollisionEffect** head) {
+    CollisionEffect* current = *head;
+    CollisionEffect* next;
+    
+    while (current != NULL) {
+        next = current->next;
+        free(current);
+        current = next;
+    }
+    
+    *head = NULL;
+}
+
+// Apply all applicable effects from both bouncing object and game object during a collision
+void applyEffects(BouncingObject* bouncingObj, GameObject* gameObj, bool isOngoingCollision) {
+    // Apply effects attached to the bouncing object
+    for (CollisionEffect* effect = bouncingObj->onCollisionEffects; effect != NULL; effect = effect->next) {
+        // Skip if we're in an ongoing collision and the effect is not continuous
+        if (isOngoingCollision && !effect->continuous) continue;
+        
+        // Apply the effect based on its type
+        switch (effect->type) {
+            case EFFECT_COLOR_CHANGE:
+                bouncingObj->color = effect->params.colorEffect.color;
+                break;
+                
+            case EFFECT_VELOCITY_BOOST:
+                bouncingObj->velocity = Vector2Scale(bouncingObj->velocity, effect->params.velocityEffect.factor);
+                break;
+                
+            case EFFECT_VELOCITY_DAMPEN:
+                bouncingObj->velocity = Vector2Scale(bouncingObj->velocity, effect->params.velocityEffect.factor);
+                break;
+                
+            case EFFECT_SIZE_CHANGE:
+                bouncingObj->radius *= effect->params.sizeEffect.factor;
+                // Ensure the radius stays within reasonable bounds
+                bouncingObj->radius = Clamp(bouncingObj->radius, 2.0f, 100.0f);
+                break;
+                
+            case EFFECT_SOUND_PLAY:
+                if (!isOngoingCollision || effect->continuous) { // Only play sound once for non-continuous
+                    PlaySound(effect->params.soundEffect.sound);
+                }
+                break;
+        }
+    }
+    
+    // Apply effects attached to the game object
+    if (gameObj) {
+        for (CollisionEffect* effect = gameObj->onCollisionEffects; effect != NULL; effect = effect->next) {
+            // Skip if we're in an ongoing collision and the effect is not continuous
+            if (isOngoingCollision && !effect->continuous) continue;
+            
+            // Apply the effect based on its type (same implementations as above)
+            switch (effect->type) {
+                case EFFECT_COLOR_CHANGE:
+                    bouncingObj->color = effect->params.colorEffect.color;
+                    break;
+                    
+                case EFFECT_VELOCITY_BOOST:
+                    bouncingObj->velocity = Vector2Scale(bouncingObj->velocity, effect->params.velocityEffect.factor);
+                    break;
+                    
+                case EFFECT_VELOCITY_DAMPEN:
+                    bouncingObj->velocity = Vector2Scale(bouncingObj->velocity, effect->params.velocityEffect.factor);
+                    break;
+                    
+                case EFFECT_SIZE_CHANGE:
+                    bouncingObj->radius *= effect->params.sizeEffect.factor;
+                    // Ensure the radius stays within reasonable bounds
+                    bouncingObj->radius = Clamp(bouncingObj->radius, 2.0f, 100.0f);
+                    break;
+                    
+                case EFFECT_SOUND_PLAY:
+                    if (!isOngoingCollision || effect->continuous) { // Only play sound once for non-continuous
+                        PlaySound(effect->params.soundEffect.sound);
+                    }
+                    break;
+            }
+        }
+    }
+}
+
+// --- Add Collision Effects to Objects ---
+
+// Helper function to add collision effects to a GameObject
+void addCollisionEffectsToGameObject(GameObject* obj, CollisionEffect* effectsList) {
+    obj->onCollisionEffects = effectsList;
+}
+
+// Helper function to add collision effects to a BouncingObject
+void addCollisionEffectsToBouncingObject(BouncingObject* obj, CollisionEffect* effectsList) {
+    obj->onCollisionEffects = effectsList;
+}
+
+// Create a GameObject with predefined collision effects
+GameObject* createGameObjectWithEffects(GameObject* baseObject, CollisionEffect* effectsList) {
+    if (!baseObject) return NULL;
+    
+    baseObject->onCollisionEffects = effectsList;
+    return baseObject;
 }
