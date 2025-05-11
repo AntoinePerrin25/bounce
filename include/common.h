@@ -1,8 +1,8 @@
 #ifndef COMMON_H
 #define COMMON_H
 
-#include "raylib/raylib.h"
-#include "raylib/raymath.h" // For Vector2 math functions
+#include "../include/raylib.h"
+#include "../include/raymath.h" // For Vector2 math functions
 #include <stdbool.h>
 #include <float.h>   // For FLT_MAX
 
