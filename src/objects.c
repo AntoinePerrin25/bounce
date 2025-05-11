@@ -391,11 +391,9 @@ static void renderArcCircleObj(GameObject* self) {
 
 static void updateArcCircleObj(GameObject* self, float dt) {
     if (!self || self->isStatic) return;
-    
-    // Update position based on velocity
+      // Update position based on velocity
     self->position = Vector2Add(self->position, Vector2Scale(self->velocity, dt));
     
-    printf("ArcCircle update called\n");
     // Update rotation
     ShapeDataArcCircle* data = (ShapeDataArcCircle*)self->shapeData;
     data->rotation += data->rotationSpeed * dt;
@@ -858,6 +856,10 @@ void applyEffects(BouncingObject* bouncingObj, GameObject* gameObj, bool isOngoi
                     if (!isOngoingCollision || effect->continuous) { // Only play sound once for non-continuous
                         PlaySound(effect->params.soundEffect.sound);
                     }
+                    break;
+                case EFFECT_BALL_DISAPPEAR:
+                case EFFECT_BALL_SPAWN:
+                    // TODO
                     break;
             }
         }

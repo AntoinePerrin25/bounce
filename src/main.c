@@ -263,7 +263,7 @@ int main(void) {
         120.0f,            // End angle (120 degrees arc)
         20.0f,             // Thickness
         (Color){ 230, 41, 55, 255 }, // Red
-        true,              // Static
+        false,              // Static
         30.0f,             // Rotation speed (degrees per second)
         true               // Remove balls that escape through the arc
     );
@@ -272,9 +272,11 @@ int main(void) {
     addObjectToList(&staticObjectList, arcCircle);
     
     // Main game loop
-    while (!WindowShouldClose()) {
-        // Get the elapsed time for this frame
+    while (!WindowShouldClose()) {        // Get the elapsed time for this frame
         float dt = GetFrameTime() * timeMultiplier;  // Apply time multiplier to control simulation speed
+        
+        // Update all static objects (especially important for rotating objects like arcCircle)
+        updateObjectList(staticObjectList, dt);
         
         // Handle speed controller buttons
         Vector2 mousePoint = GetMousePosition();
