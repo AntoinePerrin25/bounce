@@ -6,8 +6,8 @@
 #include <stdbool.h>
 #include <float.h>   // For FLT_MAX
 
-#define SCREEN_WIDTH 1280
-#define SCREEN_HEIGHT 720
+#define SCREEN_WIDTH 1920
+#define SCREEN_HEIGHT 1080
 
 #define EPSILON2 0.0001f
 

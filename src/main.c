@@ -169,6 +169,22 @@ int main(void) {
     InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Multi-Object Physics Simulation");
     SetTargetFPS(120);
     
+    // Speed controller setup
+    const float speedValues[] = {
+        0.00f, 0.01f, 0.02f, 0.05f, 0.10f, 0.20f, 0.30f, 0.40f, 0.50f, 0.60f, 
+        0.70f, 0.80f, 0.90f, 1.00f, 1.10f, 1.20f, 1.30f, 1.40f, 1.50f, 
+        1.60f, 1.70f, 1.80f, 1.90f, 2.00f, 2.20f, 2.40f, 2.60f, 2.80f, 
+        3.00f, 4.00f, 5.00f, 6.00f, 7.00f, 8.00f, 9.00f, 10.00f
+    };
+    const int numSpeedValues = sizeof(speedValues) / sizeof(speedValues[0]);
+    int currentSpeedIndex = 13; // Default to 1.00 (index 13)
+    float timeMultiplier = speedValues[currentSpeedIndex];
+    
+    // Speed controller UI elements
+    Rectangle decreaseButton = { SCREEN_WIDTH/2 - 100, SCREEN_HEIGHT - 40, 30, 30 };
+    Rectangle increaseButton = { SCREEN_WIDTH/2 + 70, SCREEN_HEIGHT - 40, 30, 30 };
+    Rectangle speedDisplay = { SCREEN_WIDTH/2 - 65, SCREEN_HEIGHT - 40, 130, 30 };
+    
     // Initialize audio device for sound effects
     #if SONG
     InitAudioDevice();
@@ -186,24 +202,48 @@ int main(void) {
     // Main game loop
     while (!WindowShouldClose()) {
         // Get the elapsed time for this frame
-        float dt = GetFrameTime();
+        float dt = GetFrameTime() * timeMultiplier;  // Apply time multiplier to control simulation speed
+        
+        // Handle speed controller buttons
+        Vector2 mousePoint = GetMousePosition();
+        
+        // Check decrease button
+        if ((CheckCollisionPointRec(mousePoint, decreaseButton) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) || IsKeyPressed(KEY_LEFT)) {
+            if (currentSpeedIndex > 0) {
+                currentSpeedIndex--;
+                timeMultiplier = speedValues[currentSpeedIndex];
+            }
+        }
+        
+        // Check increase button
+        if ((CheckCollisionPointRec(mousePoint, increaseButton) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) || IsKeyPressed(KEY_RIGHT)) {
+            if (currentSpeedIndex < numSpeedValues - 1) {
+                currentSpeedIndex++;
+                timeMultiplier = speedValues[currentSpeedIndex];
+            }
+        }
         
         // Handle keyboard input - add new bouncing objects with mouse click
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-            Vector2 mousePos = GetMousePosition();
-            Vector2 randomVelocity = {
-                (float)(100 + rand() % 200) * (rand() % 2 == 0 ? 1 : -1),
-                (float)(100 + rand() % 200) * (rand() % 2 == 0 ? 1 : -1)
-            };
-            BouncingObject* newBall = createBouncingObject(
-                mousePos, 
-                randomVelocity, 
-                10 + (rand() % 20), // Random size
-                (Color){ rand() % 200 + 55, rand() % 200 + 55, rand() % 200 + 55, 255 }, // Random color
-                0.5f + ((float)rand() / RAND_MAX) * 2.5f, // Random mass between 0.5 and 3.0
-                0.6f + ((float)rand() / RAND_MAX) * 0.35f // Random restitution between 0.6 and 0.95
-            );
-            addBouncingObjectToList(&bouncingObjectList, newBall);
+            // Don't create a ball if clicking on speed controls
+            if (!CheckCollisionPointRec(mousePoint, decreaseButton) && 
+                !CheckCollisionPointRec(mousePoint, increaseButton) &&
+                !CheckCollisionPointRec(mousePoint, speedDisplay)) {
+                Vector2 mousePos = GetMousePosition();
+                Vector2 randomVelocity = {
+                    (float)(100 + rand() % 200) * (rand() % 2 == 0 ? 1 : -1),
+                    (float)(100 + rand() % 200) * (rand() % 2 == 0 ? 1 : -1)
+                };
+                BouncingObject* newBall = createBouncingObject(
+                    mousePos, 
+                    randomVelocity, 
+                    10 + (rand() % 20), // Random size
+                    (Color){ rand() % 200 + 55, rand() % 200 + 55, rand() % 200 + 55, 255 }, // Random color
+                    0.5f + ((float)rand() / RAND_MAX) * 2.5f, // Random mass between 0.5 and 3.0
+                    0.6f + ((float)rand() / RAND_MAX) * 0.35f // Random restitution between 0.6 and 0.95
+                );
+                addBouncingObjectToList(&bouncingObjectList, newBall);
+            }
         }
         
         // Process physics for all bouncing objects
@@ -237,6 +277,13 @@ int main(void) {
         int staticCount = Count_GameObjects(staticObjectList);
         DrawText(TextFormat("Static Objects: %d", staticCount), 10, 100, 20, WHITE);
 
+        // Render speed controller UI
+        DrawRectangleRec(decreaseButton, LIGHTGRAY);
+        DrawRectangleRec(increaseButton, LIGHTGRAY);
+        DrawRectangleRec(speedDisplay, GRAY);
+        DrawText("<", decreaseButton.x + 10, decreaseButton.y + 5, 20, BLACK);
+        DrawText(">", increaseButton.x + 10, increaseButton.y + 5, 20, BLACK);
+        DrawText(TextFormat("x%.2f", timeMultiplier), speedDisplay.x + 10, speedDisplay.y + 5, 20, WHITE);
 
         EndDrawing();
     }
