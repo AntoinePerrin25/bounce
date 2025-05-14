@@ -37,6 +37,18 @@ typedef struct {
     Color color;
 } ShapeDataDiamond;
 
+/**
+ * @brief Structure for arc circle shape data.
+ * Represents a circular arc with a specific radius, angle, and thickness.
+ * @param radius Radius of the arc circle.
+ * @param startAngle Start angle in degrees.
+ * @param endAngle End angle in degrees.
+ * @param thickness Thickness of the arc.
+ * @param color Color of the arc.
+ * @param rotation Current rotation of the arc (for dynamic rotation).
+ * @param rotationSpeed Speed of rotation (degrees per second).
+ * @param removeEscapedBalls Whether balls that pass through the
+ */
 typedef struct {
     float radius;         // Radius of the arc circle
     float startAngle;     // Start angle in degrees

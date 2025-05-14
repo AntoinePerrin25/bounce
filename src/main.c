@@ -162,8 +162,8 @@ int handleBouncingObjectCollisions(BouncingObject* bouncingObj, GameObject* obje
                                           Vector2Scale(bouncingObj->velocity, timeToFirstCollision));
         
         // 3. Update the objects (they move independently)
-        updateObjectList(objectList, timeToFirstCollision);
-
+        //updateObjectList(objectList, timeToFirstCollision);
+        
         // 4. Reduce remaining time for this frame
         remainingTimeThisFrame -= timeToFirstCollision;
         
@@ -263,7 +263,7 @@ int main(void) {
         120.0f,            // End angle (120 degrees arc)
         20.0f,             // Thickness
         (Color){ 230, 41, 55, 255 }, // Red
-        false,              // Static
+        true,              // Static
         30.0f,             // Rotation speed (degrees per second)
         true               // Remove balls that escape through the arc
     );
@@ -305,7 +305,7 @@ int main(void) {
                 !CheckCollisionPointRec(mousePoint, speedDisplay)){
                 int repetition = 1;
                     if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)){
-                        repetition = 50;
+                        repetition = 25;
                 }
                 Vector2 mousePos = GetMousePosition();
                 do {
@@ -318,7 +318,8 @@ int main(void) {
                         10 + (rand() % 20), // Random size
                         (Color){ rand() % 200 + 55, rand() % 200 + 55, rand() % 200 + 55, 255 }, // Random color
                         0.5f + ((float)rand() / RAND_MAX) * 2.5f, // Random mass between 0.5 and 3.0
-                        0.6f + ((float)rand() / RAND_MAX) * 0.35f, // Random restitution between 0.6 and 0.95
+                        //0.6f + ((float)rand() / RAND_MAX) * 0.35f, // Random restitution between 0.6 and 0.95
+                        1.0f, // Restitution (bounciness)
                         true // By default, allow interaction with other bouncing objects
                     );
                     addBouncingObjectToList(&bouncingObjectList, newBall);

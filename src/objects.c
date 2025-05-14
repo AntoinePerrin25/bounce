@@ -390,19 +390,23 @@ static void renderArcCircleObj(GameObject* self) {
 }
 
 static void updateArcCircleObj(GameObject* self, float dt) {
-    if (!self || self->isStatic) return;
-      // Update position based on velocity
-    self->position = Vector2Add(self->position, Vector2Scale(self->velocity, dt));
+    if (!self) return;
     
-    // Update rotation
+    // Update rotation regardless of whether the object is static
     ShapeDataArcCircle* data = (ShapeDataArcCircle*)self->shapeData;
     data->rotation += data->rotationSpeed * dt;
     
+    // Only update position if the object is not static
+    if (!self->isStatic) {
+        // Update position based on velocity
+        self->position = Vector2Add(self->position, Vector2Scale(self->velocity, dt));
+    }
     // Normalize rotation to avoid large values over time
-    if (data->rotation > 36000.0f) {
-        data->rotation -= 36000.0f;
-    } else if (data->rotation < -36000.0f) {
-        data->rotation += 36000.0f;
+    while (data->rotation > 360.0f) {
+        data->rotation -= 360.0f;
+    }
+    while (data->rotation < 0.0f) {
+        data->rotation += 360.0f;
     }
     
     // Basic screen wrap for objects (optional)
@@ -412,129 +416,46 @@ static void updateArcCircleObj(GameObject* self, float dt) {
     if (self->position.y > SCREEN_HEIGHT + 50) self->position.y = -40;
 }
 
-static bool isPointInsideArcSector(Vector2 center, Vector2 point, float radius, float startAngleDeg, float endAngleDeg, float rotation) {
-    // Convert to local coordinates
-    Vector2 localPoint = Vector2Subtract(point, center);
+static bool isBallInsideCircle(Vector2 ballPos, Vector2 circlePos, float circleRadius, float thickness)
+{
+    // Calculer la distance entre le centre de la balle et le centre du cercle
+    float distance = sqrt(pow(ballPos.x - circlePos.x, 2) + pow(ballPos.y - circlePos.y, 2));
     
-    // Check radius
-    float distanceSquared = Vector2LengthSqr(localPoint);
-    if (distanceSquared > radius * radius) {
-        return false;
-    }
+    // Vérifier si la balle est dans la zone du cercle (compte tenu du rayon de la balle et de l'épaisseur)
+    float outerRadius = circleRadius + thickness/2;
     
-    // Calculate angle of the point in degrees
-    float angleRad = atan2f(localPoint.y, localPoint.x);
-    float angleDeg = angleRad * RAD2DEG;
-    
-    // Adjust for the arc's rotation
-    angleDeg -= rotation;
-    
-    // Normalize to [0, 360]
-    while (angleDeg < 0) angleDeg += 360.0f;
-    while (angleDeg >= 360.0f) angleDeg -= 360.0f;
-    
-    // Normalize start and end angles
-    float normalizedStartAngle = fmodf(startAngleDeg, 360.0f);
-    while (normalizedStartAngle < 0) normalizedStartAngle += 360.0f;
-    
-    float normalizedEndAngle = fmodf(endAngleDeg, 360.0f);
-    while (normalizedEndAngle < 0) normalizedEndAngle += 360.0f;
-    
-    // Check if point angle is within arc angles
-    if (normalizedStartAngle < normalizedEndAngle) {
-        return angleDeg >= normalizedStartAngle && angleDeg <= normalizedEndAngle;
-    } else {
-        // Arc wraps around 0 degrees
-        return angleDeg >= normalizedStartAngle || angleDeg <= normalizedEndAngle;
-    }
+    return distance <= outerRadius;
 }
 
 static bool checkCollisionArcCircleObj(GameObject* self, BouncingObject* bouncingObj, float dt_step, float* timeOfImpact, Vector2* collisionNormal) {
     ShapeDataArcCircle* data = (ShapeDataArcCircle*)self->shapeData;
-    
-    // Calculate the relative velocity of the bouncing object to the arc circle
     Vector2 relBallVel = Vector2Subtract(bouncingObj->velocity, self->velocity);
     
-    // Get current arc circle parameters
-    Vector2 arcCenter = self->position;
-    float innerRadius = data->radius - data->thickness/2;
-    float outerRadius = data->radius + data->thickness/2;
-    float startAngle = data->startAngle + data->rotation;
-    float endAngle = data->endAngle + data->rotation;
-    
-    // Simple checks for quick rejection
-    float maxDistance = outerRadius + bouncingObj->radius;
-    float minDistance = innerRadius - bouncingObj->radius;
-    
-    Vector2 ballPos = bouncingObj->position;
-    Vector2 ballToCenter = Vector2Subtract(arcCenter, ballPos);
-    float currentDistSq = Vector2LengthSqr(ballToCenter);
-    
-    // If ball is too far from the arc, or too close to the center, no collision possible
-    if (currentDistSq > maxDistance * maxDistance || 
-        (currentDistSq < minDistance * minDistance && minDistance > 0)) {
-        return false;
-    }
-    
-    // Check if the ball is already inside the arc sector
-    bool ballInsideArc = isPointInsideArcSector(
-        arcCenter, 
-        ballPos, 
-        outerRadius + bouncingObj->radius, 
-        startAngle, 
-        endAngle,
-        data->rotation
-    );
-    
-    // Estimate the ball's position after dt_step
-    Vector2 ballFuturePos = Vector2Add(ballPos, Vector2Scale(relBallVel, dt_step));
-    
-    // Check if the ball will be inside the arc sector at the end of the time step
-    bool ballWillBeInsideArc = isPointInsideArcSector(
-        arcCenter, 
-        ballFuturePos, 
-        outerRadius + bouncingObj->radius, 
-        startAngle, 
-        endAngle,
-        data->rotation
-    );
-    
-    // If the ball has crossed from outside to inside the arc, it has passed through the opening
-    if (!ballInsideArc && ballWillBeInsideArc && data->removeEscapedBalls) {
-        // Mark the ball for removal (it escaped through the arc)
-        bouncingObj->markedForDeletion = true;
-        return false; // No collision, ball just escapes
-    }
-    
-    // If we're here, we need to check for collisions with the inner/outer edges
-    // of the arc, which is more complex. For simple prototype, we'll use segment approximation.
-    
-    // Create segments approximating the inner and outer arcs
-    // For a prototype, we'll use a simplified approach and just check distance
-    float distToCenter = sqrtf(currentDistSq);
-    
-    // Check if ball is colliding with the inner or outer edge
-    bool collidingWithInner = distToCenter <= innerRadius + bouncingObj->radius && distToCenter >= innerRadius - bouncingObj->radius;
-    bool collidingWithOuter = distToCenter <= outerRadius + bouncingObj->radius && distToCenter >= outerRadius - bouncingObj->radius;
-    
-    // If colliding with either edge, check if it's within the angular range
-    if ((collidingWithInner || collidingWithOuter) && ballInsideArc) {
-        *timeOfImpact = 0.0f; // Collision is happening now
-        
-        // Calculate normal based on whether it's the inner or outer edge
-        if (collidingWithInner) {
-            // Normal points away from center for inner edge
-            *collisionNormal = Vector2Normalize(ballToCenter);
-        } else {
-            // Normal points toward center for outer edge
-            *collisionNormal = Vector2Normalize(Vector2Scale(ballToCenter, -1.0f));
+    // Check if the ball is inside the arc circle
+    if (isBallInsideCircle(bouncingObj->position, self->position, data->radius, data->thickness)) {
+        // Ball is inside the arc circle, check for collision with the arc
+        float current_toi;
+        Vector2 current_normal;
+        if (sweptBallToStaticSegmentCollision(self->position, self->position,
+                                              bouncingObj->position, relBallVel, bouncingObj->radius,
+                                              dt_step, &current_toi, &current_normal)) {
+            if (current_toi >= -EPSILON2 && current_toi < *timeOfImpact) {
+                *timeOfImpact = current_toi;
+                *collisionNormal = current_normal; // Normal from arc towards ball
+                return true;
+            }
         }
-        
-        return true;
     }
-    
+    else
+    {
+        // mark the ball for deletion
+        if (data->removeEscapedBalls) {
+            bouncingObj->markedForDeletion = true;
+        }
+    }
     return false;
 }
+
 
 GameObject* createArcCircleObject(Vector2 position, Vector2 velocity, float radius, float startAngle, float endAngle, float thickness, Color color, bool isStatic, float rotationSpeed, bool removeEscapedBalls) {
     GameObject* obj = (GameObject*)malloc(sizeof(GameObject));
@@ -569,6 +490,8 @@ GameObject* createArcCircleObject(Vector2 position, Vector2 velocity, float radi
     
     return obj;
 }
+
+
 
 // --- BouncingObject Management Functions ---
 
