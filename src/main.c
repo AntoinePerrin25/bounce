@@ -112,6 +112,46 @@ void handleBallToBallCollisions(BouncingObject* bouncingObjectList, float dt) {
     }
 }
 
+// Callback function for ball collision with an arc
+void onArcCollision(GameObject* arc, BouncingObject* ball) {
+    if (!arc || !ball) return;
+    
+    // Change the ball's color based on the arc's color to show collision effect
+    ShapeDataArcCircle* arcData = (ShapeDataArcCircle*)arc->shapeData;
+    if (arcData) {
+        // Mix the colors: 70% arc color, 30% original ball color
+        ball->color.r = (unsigned char)(arcData->color.r * 0.7f + ball->color.r * 0.3f);
+        ball->color.g = (unsigned char)(arcData->color.g * 0.7f + ball->color.g * 0.3f);
+        ball->color.b = (unsigned char)(arcData->color.b * 0.7f + ball->color.b * 0.3f);
+        
+        // Speed up the ball slightly
+        ball->velocity = Vector2Scale(ball->velocity, 1.1f);
+    }
+}
+
+// Callback function for when a ball escapes through an arc
+void onArcEscape(GameObject* arc, BouncingObject* ball) {
+    if (!arc) return;
+    
+    // Mark the arc for deletion when a ball escapes through it
+    arc->markedForDeletion = true;
+}
+
+// Example callback function for the second arc's collision
+void onSecondArcCollision(GameObject* arc, BouncingObject* ball) {
+    // Make the ball bigger
+    ball->radius *= 1.2f;
+    // Limit the maximum size
+    if (ball->radius > 30.0f) ball->radius = 30.0f;
+}
+
+// Example callback function for the second arc's escape
+void onSecondArcEscape(GameObject* arc, BouncingObject* ball) {
+    // Make the ball colorful with a random color instead of deleting it
+    ball->color = (Color){ rand() % 255, rand() % 255, rand() % 255, 255 };
+    // We're not marking the ball for deletion since we set removeEscapedBalls to false
+}
+
 // Find and handle all collisions for a single bouncing object with all game objects
 // Returns the number of collisions handled
 int handleBouncingObjectCollisions(BouncingObject* bouncingObj, GameObject* objectList, float dt, int maxSubsteps) {
@@ -215,11 +255,6 @@ int handleBouncingObjectCollisions(BouncingObject* bouncingObj, GameObject* obje
     return substeps;
 }
 
-#if 0
-#define SONG 1
-#else
-#define SONG 0
-#endif
 
 int main(void) {
     // Initialize window and set target FPS
@@ -234,42 +269,36 @@ int main(void) {
         3.00f, 4.00f, 5.00f, 6.00f, 7.00f, 8.00f, 9.00f, 10.00f
     };
     const int numSpeedValues = sizeof(speedValues) / sizeof(speedValues[0]);
-    int currentSpeedIndex = 13; // Default to 1.00 (index 13)
+    int currentSpeedIndex = 4; // Default to 1.00 (index 13)
     float timeMultiplier = speedValues[currentSpeedIndex];
     
     // Speed controller UI elements
     Rectangle decreaseButton = { SCREEN_WIDTH/2 - 100, SCREEN_HEIGHT - 40, 30, 30 };
     Rectangle increaseButton = { SCREEN_WIDTH/2 + 70, SCREEN_HEIGHT - 40, 30, 30 };
     Rectangle speedDisplay = { SCREEN_WIDTH/2 - 65, SCREEN_HEIGHT - 40, 130, 30 };
-    
-    // Initialize audio device for sound effects
-    #if SONG
-    InitAudioDevice();
-    // Create some sounds for collision effects
-    Sound bounceSound = LoadSound("resources/bounce.wav"); // Ensure this file exists or handle failure
-    #endif
+   
     // --- Create the static and moving objects ---
     GameObject* staticObjectList = NULL; // Objects that don't bounce but can be collided with
     BouncingObject* bouncingObjectList = NULL; // Objects that bounce around
     
-    // --- Create static objects with different effects ---
+
+    // Create 5 Red Arcs which disappear when balls escape through them
+    for (int i = 0; i < 10; i++) {
+        GameObject* arc = createArcCircleObject(
+            (Vector2){ SCREEN_WIDTH*0.5f, SCREEN_HEIGHT*0.5f }, 
+            (Vector2){ 0, 0 }, 
+            50 + i*15, // Random radius
+            0.0f, // Start angle
+            180.0f, // End angle
+            10.0f, // Thickness
+            RED, 
+            true, // Static
+            60.0f+i*20, // No rotation speed
+            true // Remove escaped balls
+        );
+        addObjectToList(&staticObjectList, arc);
+    }
     
-    // Create a rotating arc circle that removes balls when they escape through it
-    GameObject* arcCircle = createArcCircleObject(
-        (Vector2){ SCREEN_WIDTH * 0.5f, SCREEN_HEIGHT * 0.5f }, // Center position
-        (Vector2){ 0, 0 }, // No movement
-        100.0f,            // Radius
-        60.0f,              // Start angle
-        120.0f,            // End angle (120 degrees arc)
-        20.0f,             // Thickness
-        (Color){ 230, 41, 55, 255 }, // Red
-        true,              // Static
-        30.0f,             // Rotation speed (degrees per second)
-        true               // Remove balls that escape through the arc
-    );
-    
-    // Add the arc circle to the static objects list
-    addObjectToList(&staticObjectList, arcCircle);
     
     // Main game loop
     while (!WindowShouldClose()) {        // Get the elapsed time for this frame
@@ -336,12 +365,14 @@ int main(void) {
             // Apply simple screen boundary collisions
             applyScreenBoundaryCollisions(ball);
         }
-        
-        // Handle collisions between bouncing objects
+          // Handle collisions between bouncing objects
         handleBallToBallCollisions(bouncingObjectList, dt);
         
         // Remove any balls marked for deletion (e.g. those that have escaped through arcs)
         removeMarkedBouncingObjects(&bouncingObjectList);
+        
+        // Remove any game objects marked for deletion (e.g. arcs that had balls escape through them)
+        removeMarkedGameObjects(&staticObjectList);
         
         // Begin drawing
         BeginDrawing();
@@ -349,21 +380,23 @@ int main(void) {
         
         // Render all objects
         renderObjectList(staticObjectList);
-        renderBouncingObjectList(bouncingObjectList);
-          // Display instructions
-        DrawText("Left click: Add new random bouncing ball", 10, 10, 20, WHITE);
+        renderBouncingObjectList(bouncingObjectList);        // Display instructions        DrawText("Left click: Add new random bouncing ball", 10, 10, 20, WHITE);
         DrawText("Right click + Left click: Add 50 balls at once", 10, 40, 20, WHITE);
         DrawText("ESC: Quit", 10, 70, 20, WHITE);
+        DrawText("DEMO: Yellow ball tries to escape through the red arc", 10, 220, 20, YELLOW);
+          // Display arc information
+        DrawText("Red Arc: Makes balls faster and red. Removes escaped balls. Disappears when balls escape!", 10, 100, 20, WHITE);
+        DrawText("Blue Arc: Makes balls bigger. Changes color of escaped balls.", 10, 130, 20, WHITE);
         
         // Display FPS
         DrawFPS(SCREEN_WIDTH - 100, 10);
         
         // Displays the number of bouncing objects
         int bouncingCount = Count_BouncingObjects(bouncingObjectList);
-        DrawText(TextFormat("Bouncing Objects: %d", bouncingCount), 10, 70, 20, WHITE);
+        DrawText(TextFormat("Bouncing Objects: %d", bouncingCount), 10, 160, 20, WHITE);
         // Display the number of static objects
         int staticCount = Count_GameObjects(staticObjectList);
-        DrawText(TextFormat("Static Objects: %d", staticCount), 10, 100, 20, WHITE);
+        DrawText(TextFormat("Static Objects: %d", staticCount), 10, 190, 20, WHITE);
 
         // Render speed controller UI
         DrawRectangleRec(decreaseButton, LIGHTGRAY);
@@ -377,11 +410,6 @@ int main(void) {
     }
     
     // Cleanup
-    #if SONG
-    UnloadSound(bounceSound);
-    CloseAudioDevice();
-    #endif
-    
     freeObjectList(&staticObjectList);
     freeBouncingObjectList(&bouncingObjectList);
     

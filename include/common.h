@@ -47,8 +47,18 @@ typedef struct {
  * @param color Color of the arc.
  * @param rotation Current rotation of the arc (for dynamic rotation).
  * @param rotationSpeed Speed of rotation (degrees per second).
- * @param removeEscapedBalls Whether balls that pass through the
+ * @param removeEscapedBalls Whether balls that pass through the arc should be removed
  */
+
+// Callback function type for collision/escape events with ArcCircle
+typedef void (*ArcCircleCallback)(struct GameObject* arc, struct BouncingObject* ball);
+
+// Callback list item for ArcCircle events
+typedef struct ArcCircleCallbackNode {
+    ArcCircleCallback callback;
+    struct ArcCircleCallbackNode* next;
+} ArcCircleCallbackNode;
+
 typedef struct {
     float radius;         // Radius of the arc circle
     float startAngle;     // Start angle in degrees
@@ -58,6 +68,10 @@ typedef struct {
     float rotation;       // Current rotation of the arc (for dynamic rotation)
     float rotationSpeed;  // Speed of rotation (degrees per second)
     bool removeEscapedBalls; // Whether balls that pass through the arc should be removed
+    
+    // Lists of callback functions
+    ArcCircleCallbackNode* onCollisionCallbacks;  // Functions called when a ball collides with the arc
+    ArcCircleCallbackNode* onEscapeCallbacks;     // Functions called when a ball escapes through the arc
 } ShapeDataArcCircle;
 
 // --- Type of collision effect ---
@@ -135,6 +149,7 @@ struct GameObject {
     Vector2 velocity;
     void* shapeData;     // Pointer to shape-specific data (e.g., ShapeDataRectangle)
     bool isStatic;       // If true, velocity is ignored, object doesn't move
+    bool markedForDeletion; // If true, this object will be removed in the next frame
     
     // Linked list of effects to apply to bouncing objects that collide with this object
     CollisionEffect* onCollisionEffects;
@@ -159,6 +174,14 @@ bool sweptBallToStaticPointCollision(Vector2 point,
 bool sweptBallToStaticSegmentCollision(Vector2 segP1, Vector2 segP2,
                                        Vector2 ballPos, Vector2 ballVel, float ballRadius,
                                        float dt_max, float* toi, Vector2* normal);
+
+// --- Function Prototypes for ArcCircle Callback Management ---
+void addCollisionCallbackToArcCircle(GameObject* arcCircle, ArcCircleCallback callback);
+void addEscapeCallbackToArcCircle(GameObject* arcCircle, ArcCircleCallback callback);
+void freeArcCircleCallbackList(ArcCircleCallbackNode** head);
+
+// --- Function Prototypes for GameObject Management ---
+void removeMarkedGameObjects(GameObject** head);
 
 // --- Function Prototypes for BouncingObject Management ---
 BouncingObject* createBouncingObject(Vector2 position, Vector2 velocity, float radius, Color color, float mass, float restitution, bool interactWithOtherBouncingObjects);

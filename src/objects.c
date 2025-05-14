@@ -221,6 +221,37 @@ void renderObjectList(GameObject* head) {
     }
 }
 
+// Remove all game objects marked for deletion
+void removeMarkedGameObjects(GameObject** head) {
+    GameObject* current = *head;
+    GameObject* prev = NULL;
+    GameObject* next = NULL;
+    
+    while (current != NULL) {
+        next = current->next;
+        
+        if (current->markedForDeletion) {
+            // If it's the head of the list
+            if (prev == NULL) {
+                *head = next;
+            } else {
+                prev->next = next;
+            }
+            
+            // Free resources associated with this object
+            freeEffectList(&current->onCollisionEffects);
+            if (current->destroy) {
+                current->destroy(current);
+            }
+            free(current);
+        } else {
+            prev = current;
+        }
+        
+        current = next;
+    }
+}
+
 // --- Generic Object Functions ---
 static void updateGenericMovingObject(GameObject* self, float dt) {
     if (!self || self->isStatic) return;
@@ -235,6 +266,13 @@ static void updateGenericMovingObject(GameObject* self, float dt) {
 
 static void destroyGenericShapeData(GameObject* self) {
     if (self && self->shapeData) {
+        // Free any callback lists for ArcCircle objects
+        if (self->type == SHAPE_CIRCLE_ARC) {
+            ShapeDataArcCircle* arcData = (ShapeDataArcCircle*)self->shapeData;
+            freeArcCircleCallbackList(&arcData->onCollisionCallbacks);
+            freeArcCircleCallbackList(&arcData->onEscapeCallbacks);
+        }
+        
         free(self->shapeData);
         self->shapeData = NULL;
     }
@@ -298,12 +336,12 @@ GameObject* createRectangleObject(Vector2 position, Vector2 velocity, float widt
     ShapeDataRectangle* data = (ShapeDataRectangle*)malloc(sizeof(ShapeDataRectangle));
     if (!data) { free(obj); return NULL; }
 
-    data->width = width; data->height = height; data->color = color;
-    obj->type = SHAPE_RECTANGLE;
+    data->width = width; data->height = height; data->color = color;    obj->type = SHAPE_RECTANGLE;
     obj->position = position;
     obj->velocity = isStatic ? (Vector2){0,0} : velocity;
     obj->shapeData = data;
     obj->isStatic = isStatic;
+    obj->markedForDeletion = false;
     obj->render = renderRectangleObj;
     obj->checkCollision = checkCollisionRectangleObj;
     obj->update = updateGenericMovingObject;
@@ -360,12 +398,12 @@ GameObject* createDiamondObject(Vector2 position, Vector2 velocity, float diagWi
     ShapeDataDiamond* data = (ShapeDataDiamond*)malloc(sizeof(ShapeDataDiamond));
     if (!data) { free(obj); return NULL; }
 
-    data->halfWidth = diagWidth / 2.0f; data->halfHeight = diagHeight / 2.0f; data->color = color;
-    obj->type = SHAPE_DIAMOND;
+    data->halfWidth = diagWidth / 2.0f; data->halfHeight = diagHeight / 2.0f; data->color = color;    obj->type = SHAPE_DIAMOND;
     obj->position = position;
     obj->velocity = isStatic ? (Vector2){0,0} : velocity;
     obj->shapeData = data;
     obj->isStatic = isStatic;
+    obj->markedForDeletion = false;
     obj->render = renderDiamondObj;
     obj->checkCollision = checkCollisionDiamondObj;
     obj->update = updateGenericMovingObject;
@@ -430,8 +468,7 @@ static bool isBallInsideCircle(Vector2 ballPos, Vector2 circlePos, float circleR
 static bool checkCollisionArcCircleObj(GameObject* self, BouncingObject* bouncingObj, float dt_step, float* timeOfImpact, Vector2* collisionNormal) {
     ShapeDataArcCircle* data = (ShapeDataArcCircle*)self->shapeData;
     Vector2 relBallVel = Vector2Subtract(bouncingObj->velocity, self->velocity);
-    
-    // Check if the ball is inside the arc circle
+      // Check if the ball is inside the arc circle
     if (isBallInsideCircle(bouncingObj->position, self->position, data->radius, data->thickness)) {
         // Ball is inside the arc circle, check for collision with the arc
         float current_toi;
@@ -442,13 +479,28 @@ static bool checkCollisionArcCircleObj(GameObject* self, BouncingObject* bouncin
             if (current_toi >= -EPSILON2 && current_toi < *timeOfImpact) {
                 *timeOfImpact = current_toi;
                 *collisionNormal = current_normal; // Normal from arc towards ball
+                
+                // Execute all collision callbacks
+                for (ArcCircleCallbackNode* node = data->onCollisionCallbacks; node != NULL; node = node->next) {
+                    if (node->callback) {
+                        node->callback(self, bouncingObj);
+                    }
+                }
+                
                 return true;
             }
         }
     }
     else
     {
-        // mark the ball for deletion
+        // Ball has escaped the arc circle - execute all escape callbacks
+        for (ArcCircleCallbackNode* node = data->onEscapeCallbacks; node != NULL; node = node->next) {
+            if (node->callback) {
+                node->callback(self, bouncingObj);
+            }
+        }
+        
+        // Mark the ball for deletion if required
         if (data->removeEscapedBalls) {
             bouncingObj->markedForDeletion = true;
         }
@@ -471,16 +523,17 @@ GameObject* createArcCircleObject(Vector2 position, Vector2 velocity, float radi
     data->startAngle = startAngle;
     data->endAngle = endAngle;
     data->thickness = thickness;
-    data->color = color;
-    data->rotation = 0.0f;
+    data->color = color;    data->rotation = 0.0f;
     data->rotationSpeed = rotationSpeed;
     data->removeEscapedBalls = removeEscapedBalls;
-    
-    obj->type = SHAPE_CIRCLE_ARC;
+    data->onCollisionCallbacks = NULL;  // Initialize callback lists to empty
+    data->onEscapeCallbacks = NULL;
+      obj->type = SHAPE_CIRCLE_ARC;
     obj->position = position;
     obj->velocity = isStatic ? (Vector2){0,0} : velocity;
     obj->shapeData = data;
     obj->isStatic = isStatic;
+    obj->markedForDeletion = false;
     obj->render = renderArcCircleObj;
     obj->checkCollision = checkCollisionArcCircleObj;
     obj->update = updateArcCircleObj;
@@ -491,7 +544,51 @@ GameObject* createArcCircleObject(Vector2 position, Vector2 velocity, float radi
     return obj;
 }
 
+// --- ArcCircle Callback Management Functions ---
 
+// Free a linked list of ArcCircle callbacks
+void freeArcCircleCallbackList(ArcCircleCallbackNode** head) {
+    ArcCircleCallbackNode* current = *head;
+    ArcCircleCallbackNode* next;
+    
+    while (current != NULL) {
+        next = current->next;
+        free(current);
+        current = next;
+    }
+    
+    *head = NULL;
+}
+
+// Add a collision callback to an ArcCircle object
+void addCollisionCallbackToArcCircle(GameObject* arcCircle, ArcCircleCallback callback) {
+    if (!arcCircle || arcCircle->type != SHAPE_CIRCLE_ARC || !callback) return;
+    
+    ShapeDataArcCircle* data = (ShapeDataArcCircle*)arcCircle->shapeData;
+    if (!data) return;
+    
+    ArcCircleCallbackNode* newNode = (ArcCircleCallbackNode*)malloc(sizeof(ArcCircleCallbackNode));
+    if (!newNode) return;
+    
+    newNode->callback = callback;
+    newNode->next = data->onCollisionCallbacks;
+    data->onCollisionCallbacks = newNode;
+}
+
+// Add an escape callback to an ArcCircle object
+void addEscapeCallbackToArcCircle(GameObject* arcCircle, ArcCircleCallback callback) {
+    if (!arcCircle || arcCircle->type != SHAPE_CIRCLE_ARC || !callback) return;
+    
+    ShapeDataArcCircle* data = (ShapeDataArcCircle*)arcCircle->shapeData;
+    if (!data) return;
+    
+    ArcCircleCallbackNode* newNode = (ArcCircleCallbackNode*)malloc(sizeof(ArcCircleCallbackNode));
+    if (!newNode) return;
+    
+    newNode->callback = callback;
+    newNode->next = data->onEscapeCallbacks;
+    data->onEscapeCallbacks = newNode;
+}
 
 // --- BouncingObject Management Functions ---
 
