@@ -456,58 +456,334 @@ static void updateArcCircleObj(GameObject* self, float dt) {
 
 static bool isBallInsideCircle(Vector2 ballPos, Vector2 circlePos, float circleRadius, float thickness)
 {
-    // Calculer la distance entre le centre de la balle et le centre du cercle
-    float distance = sqrt(pow(ballPos.x - circlePos.x, 2) + pow(ballPos.y - circlePos.y, 2));
+    // Calculate the distance between the ball center and the circle center
+    float distance = Vector2Distance(ballPos, circlePos);
     
-    // Vérifier si la balle est dans la zone du cercle (compte tenu du rayon de la balle et de l'épaisseur)
+    // Check if the ball is within the circle zone (considering the radius and thickness)
     float outerRadius = circleRadius + thickness/2;
     
     return distance <= outerRadius;
 }
 
-static bool checkCollisionArcCircleObj(GameObject* self, BouncingObject* bouncingObj, float dt_step, float* timeOfImpact, Vector2* collisionNormal) {
+// Check if a point is within the angular range of an arc
+static bool isPointWithinArcAngles(Vector2 point, Vector2 center, float startAngle, float endAngle, float currentRotation)
+{
+    // Calculate the angle of the point relative to the center (in degrees)
+    float dx = point.x - center.x;
+    float dy = point.y - center.y;
+    float pointAngle = atan2f(dy, dx) * RAD2DEG;
+    
+    // Normalize to [0, 360] range
+    if (pointAngle < 0) pointAngle += 360.0f;
+    
+    // Apply the rotation offset and normalize
+    float effectiveStart = fmodf(startAngle + currentRotation, 360.0f);
+    float effectiveEnd = fmodf(endAngle + currentRotation, 360.0f);
+    
+    // Handle cases where the arc crosses the 0-degree line
+    if (effectiveStart <= effectiveEnd) {
+        return (pointAngle >= effectiveStart && pointAngle <= effectiveEnd);
+    } else {
+        // Arc wraps around from 360 back to 0
+        return (pointAngle >= effectiveStart || pointAngle <= effectiveEnd);
+    }
+}
+
+static bool checkCollisionArcCircleObj(GameObject* self, BouncingObject* bouncingObj, float dt_step, float* timeOfImpact, Vector2* collisionNormal)
+{
+    if (!self || !bouncingObj) return false;
+    
     ShapeDataArcCircle* data = (ShapeDataArcCircle*)self->shapeData;
+    if (!data) return false;
+    
+    // Get relative velocity (bouncing object relative to the arc circle)
     Vector2 relBallVel = Vector2Subtract(bouncingObj->velocity, self->velocity);
-      // Check if the ball is inside the arc circle
-    if (isBallInsideCircle(bouncingObj->position, self->position, data->radius, data->thickness)) {
-        // Ball is inside the arc circle, check for collision with the arc
+    
+    // Store center position for clarity
+    Vector2 arcCenter = self->position;
+    
+    // Set up variables for collision detection
+    float min_toi = dt_step + EPSILON2; // Initialize to be greater than any valid TOI
+    bool collided = false;
+    Vector2 final_normal = {0,0};
+    
+    // Calculate inner and outer radii of the arc circle
+    float innerRadius = data->radius - data->thickness/2.0f;
+    float outerRadius = data->radius + data->thickness/2.0f;
+    
+    // 1. Check for collision with the outer circle boundary
+    {
+        // Use swept ball to static point collision but with negative radius
+        // This simulates a ball hitting a circle from outside
+        
+        // Quadratic equation: |ballPos + ballVel*t - circleCenter|^2 = (ballRadius + outerRadius)^2
+        // Simplify by treating it as a point vs sphere collision
+        Vector2 relPos = Vector2Subtract(bouncingObj->position, arcCenter);
+        float combinedRadius = bouncingObj->radius + outerRadius;
+        
+        float a = Vector2DotProduct(relBallVel, relBallVel);
+        float b = 2.0f * Vector2DotProduct(relPos, relBallVel);
+        float c = Vector2DotProduct(relPos, relPos) - combinedRadius * combinedRadius;
+        
+        if (fabsf(a) < EPSILON2) { // Velocity is very small
+            if (c <= 0) { // Already overlapping
+                float distance = Vector2Length(relPos);
+                if (distance <= combinedRadius + EPSILON2) {
+                    if (distance < EPSILON2) { // Ball center very close to circle center
+                        final_normal = Vector2Normalize(relBallVel);
+                        if (Vector2LengthSqr(final_normal) < EPSILON2) {
+                            final_normal = (Vector2){1, 0}; // Default direction
+                        } else {
+                            final_normal = Vector2Negate(final_normal); // Away from velocity
+                        }
+                    } else {
+                        final_normal = Vector2Normalize(relPos); // Normal points from circle to ball
+                    }
+                    
+                    min_toi = 0.0f; // Immediate collision
+                    collided = true;
+                }
+            }
+        } else {
+            // Solve quadratic equation
+            float discriminant = b * b - 4.0f * a * c;
+            if (discriminant >= 0) {
+                float sqrt_d = sqrtf(discriminant);
+                float t1 = (-b - sqrt_d) / (2.0f * a);
+                float t2 = (-b + sqrt_d) / (2.0f * a);
+                
+                // Find earliest valid collision time
+                float t_collision = -1.0f;
+                if (t1 >= -EPSILON2 && t1 <= dt_step + EPSILON2) {
+                    t_collision = t1;
+                }
+                if (t2 >= -EPSILON2 && t2 <= dt_step + EPSILON2 && t_collision < -EPSILON2) {
+                    t_collision = t2;
+                }
+                
+                if (t_collision >= -EPSILON2 && t_collision < min_toi) {
+                    // Calculate ball position at time of impact
+                    Vector2 ballPosAtToi = Vector2Add(bouncingObj->position, Vector2Scale(relBallVel, t_collision));
+                    // Calculate collision normal (from circle center to ball center)
+                    Vector2 normal = Vector2Subtract(ballPosAtToi, arcCenter);
+                    
+                    // Check if the collision point is within the angular range of the arc
+                    if (isPointWithinArcAngles(ballPosAtToi, arcCenter, data->startAngle, data->endAngle, data->rotation)) {
+                        min_toi = t_collision;
+                        final_normal = Vector2Normalize(normal);
+                        collided = true;
+                    }
+                }
+            }
+        }
+    }
+    
+    // 2. Check for collision with the inner circle boundary (only if thickness > 0)
+    if (innerRadius > EPSILON2) {
+        Vector2 relPos = Vector2Subtract(bouncingObj->position, arcCenter);
+        float combinedRadius = innerRadius - bouncingObj->radius; // Note the subtraction
+        
+        // Only check if the combined radius is positive
+        if (combinedRadius > EPSILON2) {
+            float a = Vector2DotProduct(relBallVel, relBallVel);
+            float b = 2.0f * Vector2DotProduct(relPos, relBallVel);
+            float c = Vector2DotProduct(relPos, relPos) - combinedRadius * combinedRadius;
+            
+            // Solving quadratic equation for inner collision
+            if (fabsf(a) >= EPSILON2) {
+                float discriminant = b * b - 4.0f * a * c;
+                if (discriminant >= 0) {
+                    float sqrt_d = sqrtf(discriminant);
+                    float t1 = (-b - sqrt_d) / (2.0f * a);
+                    float t2 = (-b + sqrt_d) / (2.0f * a);
+                    
+                    // Find earliest valid collision time
+                    float t_collision = -1.0f;
+                    if (t1 >= -EPSILON2 && t1 <= dt_step + EPSILON2) {
+                        t_collision = t1;
+                    }
+                    if (t2 >= -EPSILON2 && t2 <= dt_step + EPSILON2 && t_collision < -EPSILON2) {
+                        t_collision = t2;
+                    }
+                    
+                    if (t_collision >= -EPSILON2 && t_collision < min_toi) {
+                        // Calculate ball position at time of impact
+                        Vector2 ballPosAtToi = Vector2Add(bouncingObj->position, Vector2Scale(relBallVel, t_collision));
+                        // Calculate collision normal (from ball center to circle center - opposite from outer collision)
+                        Vector2 normal = Vector2Subtract(arcCenter, ballPosAtToi);
+                        
+                        // Check if the collision point is within the angular range of the arc
+                        if (isPointWithinArcAngles(ballPosAtToi, arcCenter, data->startAngle, data->endAngle, data->rotation)) {
+                            min_toi = t_collision;
+                            final_normal = Vector2Normalize(normal);
+                            collided = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // 3. Check for collision with the end points of the arc (if they exist)
+    if (data->endAngle - data->startAngle < 360.0f) {
+        // Calculate the end points of the arc
+        float startRad = (data->startAngle + data->rotation) * DEG2RAD;
+        float endRad = (data->endAngle + data->rotation) * DEG2RAD;
+        
+        Vector2 startOuter = {
+            arcCenter.x + outerRadius * cosf(startRad),
+            arcCenter.y + outerRadius * sinf(startRad)
+        };
+        
+        Vector2 endOuter = {
+            arcCenter.x + outerRadius * cosf(endRad),
+            arcCenter.y + outerRadius * sinf(endRad)
+        };
+        
+        // If thickness > 0, we also need to check inner endpoints
+        Vector2 startInner = {
+            arcCenter.x + innerRadius * cosf(startRad),
+            arcCenter.y + innerRadius * sinf(startRad)
+        };
+        
+        Vector2 endInner = {
+            arcCenter.x + innerRadius * cosf(endRad),
+            arcCenter.y + innerRadius * sinf(endRad)
+        };
+        
+        // Check collision with start outer endpoint
         float current_toi;
         Vector2 current_normal;
-        if (sweptBallToStaticSegmentCollision(self->position, self->position,
-                                              bouncingObj->position, relBallVel, bouncingObj->radius,
-                                              dt_step, &current_toi, &current_normal)) {
-            if (current_toi >= -EPSILON2 && current_toi < *timeOfImpact) {
-                *timeOfImpact = current_toi;
-                *collisionNormal = current_normal; // Normal from arc towards ball
-                
-                // Execute all collision callbacks
-                for (ArcCircleCallbackNode* node = data->onCollisionCallbacks; node != NULL; node = node->next) {
+        if (sweptBallToStaticPointCollision(startOuter, bouncingObj->position, relBallVel,
+                                           bouncingObj->radius, dt_step, &current_toi, &current_normal)) {
+            if (current_toi < min_toi) {
+                min_toi = current_toi;
+                final_normal = current_normal;
+                collided = true;
+            }
+        }
+        
+        // Check collision with end outer endpoint
+        if (sweptBallToStaticPointCollision(endOuter, bouncingObj->position, relBallVel,
+                                           bouncingObj->radius, dt_step, &current_toi, &current_normal)) {
+            if (current_toi < min_toi) {
+                min_toi = current_toi;
+                final_normal = current_normal;
+                collided = true;
+            }
+        }
+        
+        // Check collision with start inner endpoint (if there's thickness)
+        if (innerRadius > EPSILON2) {
+            if (sweptBallToStaticPointCollision(startInner, bouncingObj->position, relBallVel,
+                                               bouncingObj->radius, dt_step, &current_toi, &current_normal)) {
+                if (current_toi < min_toi) {
+                    min_toi = current_toi;
+                    final_normal = current_normal;
+                    collided = true;
+                }
+            }
+            
+            // Check collision with end inner endpoint
+            if (sweptBallToStaticPointCollision(endInner, bouncingObj->position, relBallVel,
+                                               bouncingObj->radius, dt_step, &current_toi, &current_normal)) {
+                if (current_toi < min_toi) {
+                    min_toi = current_toi;
+                    final_normal = current_normal;
+                    collided = true;
+                }
+            }
+            
+            // If the arc isn't a full circle, check collisions with the straight segments
+            // connecting the inner and outer endpoints
+            Vector2 startSegment[2] = { startInner, startOuter };
+            Vector2 endSegment[2] = { endInner, endOuter };
+            
+            // Check collision with start segment
+            if (sweptBallToStaticSegmentCollision(startSegment[0], startSegment[1],
+                                                 bouncingObj->position, relBallVel, bouncingObj->radius,
+                                                 dt_step, &current_toi, &current_normal)) {
+                if (current_toi < min_toi) {
+                    min_toi = current_toi;
+                    final_normal = current_normal;
+                    collided = true;
+                }
+            }
+            
+            // Check collision with end segment
+            if (sweptBallToStaticSegmentCollision(endSegment[0], endSegment[1],
+                                                 bouncingObj->position, relBallVel, bouncingObj->radius,
+                                                 dt_step, &current_toi, &current_normal)) {
+                if (current_toi < min_toi) {
+                    min_toi = current_toi;
+                    final_normal = current_normal;
+                    collided = true;
+                }
+            }
+        }
+    }    // Check if the ball is escaping through the gap of the arc (NOT through the arc itself)
+    if (data->onEscapeCallbacks != NULL) {
+        // Determine if ball is inside the circle now or will be after moving
+        Vector2 ballPosAfterStep = Vector2Add(bouncingObj->position, Vector2Scale(bouncingObj->velocity, dt_step));
+        bool ballIsInsideNow = isBallInsideCircle(bouncingObj->position, arcCenter, data->radius, data->thickness);
+        bool ballWillBeInsideAfter = isBallInsideCircle(ballPosAfterStep, arcCenter, data->radius, data->thickness);
+        
+        // We only care about balls that are either:
+        // 1. Going from inside to outside (escaping)
+        // 2. Already outside with velocity pointing away from circle
+        if (!ballIsInsideNow && !ballWillBeInsideAfter) {
+            // Ball is already outside and staying outside, no escape event
+            return collided;
+        }
+        
+        // If the ball is leaving the circle's interior
+        if (ballIsInsideNow && !ballWillBeInsideAfter) {
+            // Calculate angle of ball position to check if it's leaving through the gap
+            Vector2 ballRelPos = Vector2Subtract(bouncingObj->position, arcCenter);
+            float ballAngle = atan2f(ballRelPos.y, ballRelPos.x) * RAD2DEG;
+            if (ballAngle < 0) ballAngle += 360.0f;
+            
+            // Calculate exit trajectory and intersection with circle boundary
+            Vector2 trajectory = Vector2Normalize(bouncingObj->velocity);
+            float outerRadius = data->radius + data->thickness/2;
+            
+            // Project the position to the boundary to determine the escape point
+            Vector2 escapePoint = Vector2Add(arcCenter, Vector2Scale(Vector2Normalize(ballRelPos), outerRadius));
+            
+            // IMPORTANT: Check if the escape point is NOT within the arc angles
+            // This means the ball is escaping through the GAP, not through the arc itself
+            if (!isPointWithinArcAngles(escapePoint, arcCenter, data->startAngle, data->endAngle, data->rotation)) {
+                // Ball is escaping through the GAP (not the arc), call all escape callbacks
+                for (ArcCircleCallbackNode* node = data->onEscapeCallbacks; node != NULL; node = node->next) {
                     if (node->callback) {
                         node->callback(self, bouncingObj);
                     }
                 }
                 
-                return true;
+                // If the arc is configured to remove escaped balls, mark the ball for deletion
+                if (data->removeEscapedBalls) {
+                    bouncingObj->markedForDeletion = true;
+                }
             }
         }
     }
-    else
-    {
-        // Ball has escaped the arc circle - execute all escape callbacks
-        for (ArcCircleCallbackNode* node = data->onEscapeCallbacks; node != NULL; node = node->next) {
-            if (node->callback) {
-                node->callback(self, bouncingObj);
+    
+    if (collided) {
+        // If colliding, call all collision callbacks
+        if (data->onCollisionCallbacks != NULL) {
+            for (ArcCircleCallbackNode* node = data->onCollisionCallbacks; node != NULL; node = node->next) {
+                if (node->callback) {
+                    node->callback(self, bouncingObj);
+                }
             }
         }
         
-        // Mark the ball for deletion if required
-        if (data->removeEscapedBalls) {
-            bouncingObj->markedForDeletion = true;
-        }
+        *timeOfImpact = min_toi;
+        *collisionNormal = final_normal;
     }
-    return false;
+    
+    return collided;
 }
-
 
 GameObject* createArcCircleObject(Vector2 position, Vector2 velocity, float radius, float startAngle, float endAngle, float thickness, Color color, bool isStatic, float rotationSpeed, bool removeEscapedBalls) {
     GameObject* obj = (GameObject*)malloc(sizeof(GameObject));
